@@ -1,132 +1,136 @@
 // lib/hooks/useTaskPolling.ts
-import { useState, useEffect, useRef, useCallback } from 'react'; // Added useCallback
-import { getTaskStatus } from '@/lib/api';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { getTaskStatus } from '@/lib/api'; // Assuming this API function exists
 import { toast } from "sonner";
 
-// Type definitions
+// --- Type Definitions ---
 type TaskStatusType = 'PENDING' | 'STARTED' | 'PROGRESS' | 'SUCCESS' | 'FAILURE' | 'REVOKED' | string;
 
+// Matches the structure returned in the 'result' or 'meta' field of Celery task state
 interface TaskResultData {
-    final_model_path?: string; // Make specific if possible
+    final_model_path?: string;
+    best_fitness?: number | null;
+    message?: string;
     error?: string;
-    [key: string]: any; // Allow other potential result fields
+    // Add fields for the new metric histories
+    fitness_history?: number[] | null; // Max fitness history
+    avg_fitness_history?: number[] | null;
+    diversity_history?: number[] | null;
 }
 
+// Structure expected from the getTaskStatus API endpoint (adjust if your backend sends differently)
+// Celery's AsyncResult often has status, info (for meta), result (for final data)
 interface TaskStatusResponse {
     task_id: string;
     status: TaskStatusType;
-    progress: number | null;
-    result: {
-        data: TaskResultData | null; // Contains actual result data or error info
-        fitness_history?: number[] | null; // Optional fitness history
-    } | null;
-    message: string | null;
+    progress?: number | null; // Often not directly available, calculate from info if needed
+    info?: TaskResultData | any | null; // Meta data during PROGRESS state
+    result?: TaskResultData | any | null; // Final result data on SUCCESS/FAILURE
+    message?: string | null; // Top-level message might exist
 }
 
+// State managed by the hook
 interface TaskState {
     taskId: string | null;
     status: TaskStatusType | null;
     progress: number | null;
-    result: TaskResultData | null; // Store just the 'data' part of the result
-    fitnessHistory: number[] | null;
+    result: TaskResultData | null; // Store processed final result data
+    // Store metric histories
+    fitnessHistory: number[] | null; // Max fitness
+    avgFitnessHistory: number[] | null;
+    diversityHistory: number[] | null;
+    // ---
     message: string | null;
     error: string | null;
     isActive: boolean;
 }
 
 const initialState: TaskState = {
-    taskId: null, status: null, progress: null, result: null, fitnessHistory: null, message: null, error: null, isActive: false
+    taskId: null, status: null, progress: null, result: null,
+    fitnessHistory: null, avgFitnessHistory: null, diversityHistory: null, // Initialize new states
+    message: null, error: null, isActive: false
 };
 
-// Update function signature to only accept 'evolver'
+// Only 'evolver' needed for endpoint type
 export function useTaskPolling(endpoint: 'evolver', intervalMs = 3000) {
     const [taskState, setTaskState] = useState<TaskState>(initialState);
     const intervalRef = useRef<NodeJS.Timeout | null>(null);
-    const currentTaskIdRef = useRef<string | null>(null); // Ref to store the current active task ID
+    const currentTaskIdRef = useRef<string | null>(null);
 
     const stopPolling = useCallback(() => {
-        if (intervalRef.current) {
-            clearInterval(intervalRef.current);
-            intervalRef.current = null;
-        }
-        // Only set isActive false if there isn't an error or final state already set
+        if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
         setTaskState(prev => {
-            if (prev.status !== 'SUCCESS' && prev.status !== 'FAILURE' && prev.status !== 'REVOKED' && !prev.error) {
+            if (prev.isActive && prev.status !== 'SUCCESS' && prev.status !== 'FAILURE' && prev.status !== 'REVOKED') {
+                // Only set isActive to false if it was previously active and not in a final state
                 return { ...prev, isActive: false };
             }
-            return prev; // Keep state as is if already completed/failed
+            return prev; // Otherwise, keep state as is
         });
-        currentTaskIdRef.current = null; // Clear the active task ID ref
-    }, []); // No dependencies, function definition is stable
+        currentTaskIdRef.current = null;
+    }, []);
 
 
     const pollStatus = useCallback(async () => {
-        const taskId = currentTaskIdRef.current; // Get task ID from ref
-        if (!taskId) {
-            // console.warn("pollStatus called without active taskId");
-            stopPolling();
-            return;
-        }
-
-        // console.log(`Polling for task: ${taskId}`); // Debug log
+        const taskId = currentTaskIdRef.current;
+        if (!taskId) { stopPolling(); return; }
 
         try {
-            // Call getTaskStatus directly with 'evolver'
             const data: TaskStatusResponse = await getTaskStatus('evolver', taskId);
 
-            // console.log("Received status data:", data); // Debug log
-
-            // Use functional update to ensure we work with the latest state
             setTaskState(prev => {
-                // If the task ID changed while polling was in flight, ignore this update
-                if (prev.taskId !== taskId) return prev;
+                if (prev.taskId !== taskId) return prev; // Ignore if task changed
 
-                // Determine next fitness history based on previous state and new data
-                let nextFitnessHistory = prev.fitnessHistory; // Default to previous
-                if (data.result?.fitness_history && Array.isArray(data.result.fitness_history)) {
-                    nextFitnessHistory = data.result.fitness_history; // Use new data if available
-                }
+                // Determine the source of metadata based on status
+                // PROGRESS meta usually in 'info', final SUCCESS/FAILURE data in 'result'
+                const metaSource = (data.status === 'PROGRESS' ? data.info : data.result) || {};
+                const finalResultData = (data.status === 'SUCCESS' || data.status === 'FAILURE') ? data.result : null;
 
-                // Determine if polling should stop
+                // Extract Histories safely from the metaSource
+                const nextFitnessHistory = metaSource?.fitness_history && Array.isArray(metaSource.fitness_history)
+                    ? metaSource.fitness_history : prev.fitnessHistory;
+                const nextAvgFitnessHistory = metaSource?.avg_fitness_history && Array.isArray(metaSource.avg_fitness_history)
+                    ? metaSource.avg_fitness_history : prev.avgFitnessHistory;
+                const nextDiversityHistory = metaSource?.diversity_history && Array.isArray(metaSource.diversity_history)
+                    ? metaSource.diversity_history : prev.diversityHistory;
+
+                // Extract Progress (often in 'info' during PROGRESS)
+                const nextProgress = (data.status === 'PROGRESS' && typeof metaSource?.progress === 'number')
+                    ? metaSource.progress
+                    : (data.status === 'SUCCESS' ? 1.0 : prev.progress); // Set to 1 on success
+
+                // Extract Message
+                const nextMessage = metaSource?.message || data.message || prev.message;
+
+                // Extract Error (usually in 'result' on FAILURE)
+                const nextError = data.status === 'FAILURE' ? (finalResultData?.error || finalResultData?.message || 'Task failed') : null;
+
                 const shouldStop = data.status === 'SUCCESS' || data.status === 'FAILURE' || data.status === 'REVOKED';
 
-                // Calculate new state
                 const newState: TaskState = {
                     ...prev,
                     status: data.status,
-                    progress: data.progress,
-                    // Store only the nested 'data' object from the result, or null
-                    result: data.result?.data ?? null,
+                    progress: nextProgress,
+                    result: finalResultData, // Store final result data
                     fitnessHistory: nextFitnessHistory,
-                    message: data.message,
-                    // Extract error message preferably from result.data.error
-                    error: data.status === 'FAILURE' ? (data.result?.data?.error || data.message || 'Task failed') : null,
-                    // isActive should become false ONLY when stopping
+                    avgFitnessHistory: nextAvgFitnessHistory,
+                    diversityHistory: nextDiversityHistory,
+                    message: nextMessage,
+                    error: nextError,
                     isActive: !shouldStop,
                 };
 
-                // --- Side Effects (Toasts, Stopping Interval) ---
-                // Need to be handled carefully after state update is calculated
-                // We can't call stopPolling directly inside setTaskState
-                if (shouldStop) {
-                    // console.log(`Stopping polling for ${taskId}, status: ${data.status}`); // Debug log
-                    // Trigger toast notifications based on the final status derived *now*
-                    if (data.status === 'SUCCESS') {
-                       toast.success(`Task ${taskId} completed!`);
-                    } else if (data.status === 'FAILURE') {
-                       const errorMsg = data.result?.data?.error || data.message || 'Unknown error';
-                       toast.error(`Task ${taskId} failed: ${errorMsg}`);
-                    } else if (data.status === 'REVOKED') {
-                       toast.info(`Task ${taskId} was revoked.`);
-                    }
+                // Handle Side Effects (Toasts) outside the state updater logic
+                if (shouldStop && prev.status !== data.status) { // Only toast on final state change
+                    if (data.status === 'SUCCESS') toast.success(`Task ${taskId} completed!`);
+                    else if (data.status === 'FAILURE') toast.error(`Task ${taskId} failed: ${newState.error || 'Unknown error'}`);
+                    else if (data.status === 'REVOKED') toast.info(`Task ${taskId} was revoked.`);
                 }
-
                 return newState;
             });
 
-            // If the status indicates stopping, clear the interval *after* the state update
+            // Stop interval *after* state update if needed
              if (data.status === 'SUCCESS' || data.status === 'FAILURE' || data.status === 'REVOKED') {
-                 stopPolling(); // Call stopPolling here
+                 stopPolling();
              }
 
         } catch (error: any) {
@@ -134,49 +138,40 @@ export function useTaskPolling(endpoint: 'evolver', intervalMs = 3000) {
             const errorMsg = error.message || 'Polling request failed';
             setTaskState(prev => ({ ...prev, error: errorMsg, isActive: false }));
             toast.error(`Polling Error: ${errorMsg}`);
-            stopPolling(); // Stop interval on catch
+            stopPolling();
         }
-    }, [stopPolling]); // Include stopPolling as a dependency (it's memoized by useCallback)
+    }, [stopPolling, intervalMs]); // intervalMs is stable, stopPolling is memoized
 
 
     const startTask = useCallback((taskId: string) => {
-        // console.log(`Starting task: ${taskId}`); // Debug log
-        stopPolling(); // Stop any previous polling
-        currentTaskIdRef.current = taskId; // Set the active task ID in the ref
-        setTaskState({ // Set initial state
-            taskId: taskId, status: 'PENDING', progress: 0, result: null, fitnessHistory: null,
-            message: 'Task submitted, waiting for status...', error: null, isActive: true,
-        });
+        stopPolling(); // Ensure any previous polling is stopped
+        currentTaskIdRef.current = taskId;
+        setTaskState(initialState); // Reset to initial state FIRST
+        setTaskState(prev => ({ // Then set the new task ID and pending status
+            ...prev,
+            taskId: taskId,
+            status: 'PENDING',
+            isActive: true,
+            message: 'Task submitted, waiting for status...'
+        }));
 
-        // Immediate first poll after a short delay
-        const firstPollTimeout = setTimeout(() => {
-             // Check ref directly - avoids stale closure on taskState
-             if (currentTaskIdRef.current === taskId) {
-                 pollStatus();
-             }
-        }, 1000); // Poll 1 second after starting
+        // Immediate first poll
+        const firstPollTimeout = setTimeout(() => { if (currentTaskIdRef.current === taskId) { pollStatus(); } }, 1000);
 
-        // Set up the interval - ensure the function reference is stable
+        // Setup interval
         intervalRef.current = setInterval(pollStatus, intervalMs);
 
-        // Cleanup function for the timeout (though less critical now)
-        // return () => clearTimeout(firstPollTimeout);
-    }, [stopPolling, pollStatus, intervalMs]); // Dependencies for useCallback
+        // No need to return cleanup from here, useEffect handles unmount cleanup
+    }, [stopPolling, pollStatus, intervalMs]); // Dependencies
 
 
     // Cleanup interval on component unmount
-    useEffect(() => {
-        return () => {
-            stopPolling();
-        };
-    }, [stopPolling]); // Dependency on memoized stopPolling
-
+    useEffect(() => { return () => { stopPolling(); }; }, [stopPolling]);
 
     const resetTaskState = useCallback(() => {
-        // console.log("Resetting task state"); // Debug log
         stopPolling();
-        setTaskState(initialState); // Reset to initial state object
-    }, [stopPolling]); // Dependency on memoized stopPolling
+        setTaskState(initialState);
+    }, [stopPolling]);
 
     return { taskState, startTask, stopPolling, resetTaskState };
 }

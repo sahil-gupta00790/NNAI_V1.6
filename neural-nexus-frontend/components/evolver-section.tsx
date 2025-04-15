@@ -1,307 +1,243 @@
 // components/evolver-section.tsx
 'use client';
-import React, { useState, useRef, ChangeEvent, FormEvent } from 'react'; // Added types
+import React, { useState, useRef, ChangeEvent, FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea'; // *** ADDED Textarea import ***
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group" // For eval choice
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // Import Alert components
-import { AlertCircle } from "lucide-react"; // Import icon for error alert
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 import { startEvolutionTask } from '@/lib/api';
 import { useTaskPolling } from '@/lib/hooks/useTaskPolling';
 import RealTimePlot from './real-time-plot';
 import { toast } from "sonner";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion"; // Keep imports even if unused temporarily
 
-// Default JSON structure to guide the user
+// --- CORRECTED Default JSON config ---
 const defaultJsonConfig = JSON.stringify(
   {
-    model_class: "MyCNN", // Instruct user to change this
-    generations: 10,
-    population_size: 20,
-    mutation_rate: 0.1,
+    model_class: "MyCNN",
+    generations: 20,
+    population_size: 30,
+    selection_strategy: "tournament",
+    crossover_operator: "one_point",
+    mutation_operator: "gaussian",
+    elitism_count: 1,
+    mutation_rate: 0.15,
     mutation_strength: 0.05,
-    // Add other parameters your backend/task expects
-  },
-  null, // Replacer function for JSON.stringify
-  2   // Indentation (spaces) for readability
+    // --- CORRECTED eval_config key ---
+    "eval_config": {
+      "batch_size": 128 // Use underscore, ensure quotes are correct
+    }
+    // --- END CORRECTION ---
+  }, null, 2
 );
 
-
 export default function EvolverSection() {
+    // State (Unchanged)
     const [modelDefFile, setModelDefFile] = useState<File | null>(null);
     const [taskEvalFile, setTaskEvalFile] = useState<File | null>(null);
     const [weightsFile, setWeightsFile] = useState<File | null>(null);
-    // *** ADDED state for JSON config ***
     const [configJson, setConfigJson] = useState<string>(defaultJsonConfig);
-    // Keep generations/popSize state if UI inputs should potentially override JSON (requires backend logic)
-    const [generations, setGenerations] = useState<number>(10); // Default generations
-    const [popSize, setPopSize] = useState<number>(20); // Default pop size
     const [isSubmitting, setIsSubmitting] = useState(false);
-    const [evalChoice, setEvalChoice] = useState<'standard' | 'custom'>('standard'); // Default to standard
+    const [evalChoice, setEvalChoice] = useState<'standard' | 'custom'>('standard');
 
+    // Refs (Unchanged)
     const modelDefRef = useRef<HTMLInputElement>(null);
     const taskEvalRef = useRef<HTMLInputElement>(null);
     const weightsRef = useRef<HTMLInputElement>(null);
 
-    // Use the provided hook for polling
+    // Hook (Unchanged)
     const { taskState, startTask, resetTaskState } = useTaskPolling('evolver');
 
+    // Event Handlers (Unchanged)
     const handleEvalChoiceChange = (value: 'standard' | 'custom') => {
         setEvalChoice(value);
-        // Clear custom file if switching back to standard
         if (value === 'standard' && taskEvalRef.current) {
-            taskEvalRef.current.value = "";
-            setTaskEvalFile(null);
+            taskEvalRef.current.value = ""; setTaskEvalFile(null);
         }
     };
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => { // Explicit type for 'e'
         e.preventDefault();
-        // Validation
-        if (!modelDefFile) {
-            toast.error("Model Definition file is required.");
-            return;
-        }
-        if (evalChoice === 'custom' && !taskEvalFile) {
-             toast.error("Custom Evaluation Script file is required when selected.");
-             return;
-        }
-        if (taskState.isActive) {
-            toast.warning("A task is already running.");
-            return;
-        }
-
-        // *** ADDED JSON Validation ***
+        // Validations (Unchanged)
+        if (!modelDefFile) { toast.error("Model Definition file is required."); return; }
+        if (evalChoice === 'custom' && !taskEvalFile) { toast.error("Custom Evaluation Script file is required."); return; }
+        if (taskState.isActive) { toast.warning("A task is already running."); return; }
         let parsedConfig;
         try {
             parsedConfig = JSON.parse(configJson);
-            if (!parsedConfig.model_class || typeof parsedConfig.model_class !== 'string' || parsedConfig.model_class.trim() === "") {
-                // Check if model_class exists, is a non-empty string
-                throw new Error("'model_class' key (with a valid class name string) is missing or invalid in Configuration JSON.");
-            }
-        } catch (jsonError: any) {
-             toast.error(`Invalid Configuration JSON: ${jsonError.message}`);
-             return; // Stop submission if JSON is invalid
-        }
-        // *** END JSON Validation ***
+            if (!parsedConfig.model_class || typeof parsedConfig.model_class !== 'string' || parsedConfig.model_class.trim() === "") { throw new Error("'model_class' key (string) is missing or invalid."); }
+            if (typeof parsedConfig.generations !== 'number' || parsedConfig.generations < 1) { throw new Error("'generations' must be a positive number."); }
+            if (typeof parsedConfig.population_size !== 'number' || parsedConfig.population_size < 2) { throw new Error("'population_size' must be at least 2."); }
+        } catch (jsonError: any) { toast.error(`Invalid Configuration JSON: ${jsonError.message}`); return; }
+
+        console.log("Frontend: Sending configJson string:", configJson);
 
         setIsSubmitting(true);
-        resetTaskState(); // Clear previous task state before starting new one
+        resetTaskState();
         toast("Submitting evolution task...");
 
+        // FormData (Unchanged)
         const formData = new FormData();
         formData.append('model_definition', modelDefFile);
-        formData.append('use_standard_eval', String(evalChoice === 'standard')); // Send as string 'true'/'false'
-
-        if (evalChoice === 'custom' && taskEvalFile) {
-            formData.append('task_evaluation', taskEvalFile);
-        }
-        if (weightsFile) {
-            formData.append('initial_weights', weightsFile);
-        }
-
-        // --- Configuration ---
-        // Append the validated JSON string from the state
+        formData.append('use_standard_eval', String(evalChoice === 'standard'));
+        if (evalChoice === 'custom' && taskEvalFile) formData.append('task_evaluation', taskEvalFile);
+        if (weightsFile) formData.append('initial_weights', weightsFile);
         formData.append('config_json', configJson);
-        // --- End Configuration ---
 
+        // API Call (Unchanged)
         try {
             const response = await startEvolutionTask(formData);
-            startTask(response.task_id); // Start polling for the new task
+            startTask(response.task_id);
             toast.success(`Task ${response.task_id} started.`);
-             // Reset form fields visually ONLY on successful submission
              if(modelDefRef.current) modelDefRef.current.value = "";
              if(taskEvalRef.current) taskEvalRef.current.value = "";
              if(weightsRef.current) weightsRef.current.value = "";
-             setModelDefFile(null);
-             setTaskEvalFile(null);
-             setWeightsFile(null);
-             // Optionally reset config inputs too
-             // setConfigJson(defaultJsonConfig);
-             // setGenerations(10);
-             // setPopSize(20);
-
+             setModelDefFile(null); setTaskEvalFile(null); setWeightsFile(null);
         } catch (error: any) {
             console.error("Error starting evolution task:", error);
             toast.error(`Failed to start task: ${error.message || 'Unknown error'}`);
-            // Do not reset form on error
         } finally {
             setIsSubmitting(false);
         }
     };
 
-    // --- Prepare plot data and download link (remains the same) ---
-    const fitnessHistory: number[] = taskState.fitnessHistory ?? [];
-    const downloadLink = taskState.status === 'SUCCESS' && taskState.taskId
-        ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1'}/evolver/results/${taskState.taskId}/download`
-        : null;
+    // Plot Data Prep (Unchanged)
+    const plotData = {
+        maxFitness: Array.isArray(taskState.fitnessHistory) ? taskState.fitnessHistory : [],
+        avgFitness: Array.isArray(taskState.avgFitnessHistory) ? taskState.avgFitnessHistory : [],
+        diversity: Array.isArray(taskState.diversityHistory) ? taskState.diversityHistory : []
+    };
+    const hasPlotData = plotData.maxFitness.length > 0 || plotData.avgFitness.length > 0 || plotData.diversity.length > 0;
 
+    // Download Link (Handle null for href)
+    const downloadLink = taskState.status === 'SUCCESS' && taskState.result?.final_model_path && taskState.taskId
+        ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/evolver/results/${taskState.taskId}/download`
+        : undefined; // Use undefined for missing href, null is invalid
+
+    // --- Component Return ---
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Form Card */}
             <Card>
                 <CardHeader>
                     <CardTitle>Configure Evolution</CardTitle>
-                    <CardDescription>Upload files and set parameters for the Genetic Algorithm.</CardDescription>
+                    <CardDescription>Upload files and configure GA parameters via JSON.</CardDescription>
                 </CardHeader>
                 <CardContent>
+                    {/* --- CORRECTED JSX STRUCTURE --- */}
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        {/* Model Definition */}
+                        {/* File Inputs */}
                         <div>
                             <Label htmlFor="model-def">Model Definition (.py) <span className="text-red-500">*</span></Label>
-                            <Input ref={modelDefRef} id="model-def" type="file" accept=".py" required onChange={(e) => setModelDefFile(e.target.files?.[0] ?? null)} disabled={isSubmitting || taskState.isActive} />
+                            <Input ref={modelDefRef} id="model-def" type="file" accept=".py" required onChange={(e: ChangeEvent<HTMLInputElement>) => setModelDefFile(e.target.files?.[0] ?? null)} disabled={isSubmitting || taskState.isActive} />
                         </div>
-
-                        {/* Evaluation Choice */}
                         <div>
-                             <Label>Evaluation Method <span className="text-red-500">*</span></Label>
-                              <RadioGroup
-                                value={evalChoice}
-                                onValueChange={handleEvalChoiceChange}
-                                className="flex space-x-4 mt-1"
-                                disabled={isSubmitting || taskState.isActive}
-                              >
+                            <Label>Evaluation Method <span className="text-red-500">*</span></Label>
+                            <RadioGroup value={evalChoice} onValueChange={handleEvalChoiceChange} className="flex space-x-4 mt-1" disabled={isSubmitting || taskState.isActive}>
                                 <div className="flex items-center space-x-2">
-                                  <RadioGroupItem value="standard" id="eval-standard" />
-                                  <Label htmlFor="eval-standard">Standard (MNIST)</Label>
+                                    <RadioGroupItem value="standard" id="eval-standard" />
+                                    <Label htmlFor="eval-standard">Standard (MNIST)</Label>
                                 </div>
                                 <div className="flex items-center space-x-2">
-                                  <RadioGroupItem value="custom" id="eval-custom" />
-                                  <Label htmlFor="eval-custom">Upload Custom</Label>
+                                    <RadioGroupItem value="custom" id="eval-custom" />
+                                    <Label htmlFor="eval-custom">Upload Custom</Label>
                                 </div>
-                              </RadioGroup>
+                            </RadioGroup>
                         </div>
-
-                         {/* Custom Evaluation Script Input (Conditional) */}
-                         <AnimatePresence>
+                        {/* Keep inner AnimatePresence, ensure it wraps ONLY the conditional element */}
+                        <AnimatePresence>
                             {evalChoice === 'custom' && (
-                                <motion.div
-                                    initial={{ opacity: 0, height: 0 }}
-                                    animate={{ opacity: 1, height: 'auto' }}
-                                    exit={{ opacity: 0, height: 0 }}
-                                    transition={{ duration: 0.3 }}
-                                    className="mt-2"
-                                >
+                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className="mt-2">
                                     <Label htmlFor="task-eval">Custom Evaluation Script (.py) <span className="text-red-500">*</span></Label>
-                                    <Input ref={taskEvalRef} id="task-eval" type="file" accept=".py" required={evalChoice === 'custom'} onChange={(e) => setTaskEvalFile(e.target.files?.[0] ?? null)} disabled={isSubmitting || taskState.isActive} />
+                                    <Input ref={taskEvalRef} id="task-eval" type="file" accept=".py" required={evalChoice === 'custom'} onChange={(e: ChangeEvent<HTMLInputElement>) => setTaskEvalFile(e.target.files?.[0] ?? null)} disabled={isSubmitting || taskState.isActive} />
                                 </motion.div>
-                            )}
-                        </AnimatePresence>
-
-                         {/* Initial Weights */}
+                             )}
+                         </AnimatePresence>
                         <div>
                             <Label htmlFor="init-weights">Initial Weights (.pth, Optional)</Label>
-                            <Input ref={weightsRef} id="init-weights" type="file" accept=".pth,.pt" onChange={(e) => setWeightsFile(e.target.files?.[0] ?? null)} disabled={isSubmitting || taskState.isActive} />
+                            <Input ref={weightsRef} id="init-weights" type="file" accept=".pth,.pt" onChange={(e: ChangeEvent<HTMLInputElement>) => setWeightsFile(e.target.files?.[0] ?? null)} disabled={isSubmitting || taskState.isActive} />
                         </div>
-
-                        {/* === ADDED Configuration JSON Textarea === */}
+                        {/* Config JSON */}
                         <div className="space-y-2">
                             <Label htmlFor="config-json">Configuration JSON <span className="text-red-500">*</span></Label>
                             <Textarea
                                 id="config-json"
-                                placeholder='Paste your JSON config here...'
+                                placeholder='Edit JSON config for GA parameters...'
                                 value={configJson}
                                 onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setConfigJson(e.target.value)}
-                                rows={8} // Adjust height as needed
+                                rows={12}
                                 required
-                                className="font-mono text-sm" // Use monospace font for JSON
+                                className="font-mono text-sm"
                                 disabled={isSubmitting || taskState.isActive}
                             />
-                            <p className="text-xs text-muted-foreground">
-                                Must be valid JSON. **Include the `"model_class"` key matching the class name in your Model Definition file.**
-                            </p>
+                            <p className="text-xs text-muted-foreground">Must be valid JSON. Edit parameters like `generations`, `population_size`, `selection_strategy`, `mutation_rate`, etc. Ensure `model_class` matches your uploaded file.</p>
                         </div>
-                        {/* === END Added Textarea === */}
-
-
-                        {/* GA Parameters (Consider if these are redundant if set in JSON) */}
-                        <div className="grid grid-cols-2 gap-4">
-                             <div>
-                                <Label htmlFor="generations">Generations (From JSON)</Label>
-                                <Input id="generations" type="number" min="1" value={generations} onChange={(e) => setGenerations(Math.max(1, parseInt(e.target.value, 10) || 1))} disabled={isSubmitting || taskState.isActive} />
-                            </div>
-                             <div>
-                                <Label htmlFor="pop-size">Population Size (From JSON)</Label>
-                                <Input id="pop-size" type="number" min="2" value={popSize} onChange={(e) => setPopSize(Math.max(2, parseInt(e.target.value, 10) || 2))} disabled={isSubmitting || taskState.isActive} />
-                            </div>
-                            {/* TODO: Add inputs for mutation rate/strength if needed, or remove if only set via JSON */}
-                        </div>
-
                         {/* Submit Button */}
-                        <Button type="submit" className="w-full" disabled={isSubmitting || taskState.isActive || (evalChoice === 'custom' && !taskEvalFile) || !modelDefFile}>
+                        <Button type="submit" className="w-full" disabled={isSubmitting || taskState.isActive || !modelDefFile || (evalChoice === 'custom' && !taskEvalFile)}>
                             {isSubmitting ? "Submitting..." : taskState.isActive ? "Task Running..." : "Start Evolution"}
                         </Button>
                     </form>
+                     {/* --- END CORRECTED JSX --- */}
                 </CardContent>
             </Card>
 
-            {/* --- Status & Plot Card (Remains the same) --- */}
+            {/* Status & Plot Card */}
             <Card>
                  <CardHeader>
                     <CardTitle>Task Status & Results</CardTitle>
                     <CardDescription>Monitor the evolution progress in real-time.</CardDescription>
-                </CardHeader>
+                 </CardHeader>
                 <CardContent className="space-y-4">
-                   <AnimatePresence>
-                    {taskState.taskId ? ( // Render only if a task has been started
-                         <motion.div
-                            key={taskState.taskId} // Use taskId as key for re-animation on new task
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            className="space-y-2"
-                         >
+                   {/* Still keep outer AnimatePresence/motion.div removed for testing */}
+                    {taskState.taskId ? (
+                         <div key={taskState.taskId} className="space-y-2" > {/* Use simple div */}
+                            {/* Status Display Content */}
                             <p>Task ID: <span className="font-mono text-sm bg-muted px-1 rounded">{taskState.taskId}</span></p>
                             <p>Status: <span className={`font-semibold ${taskState.status === 'SUCCESS' ? 'text-green-600' : taskState.status === 'FAILURE' ? 'text-red-600' : ''}`}>{taskState.status || 'N/A'}</span></p>
-                            {/* Progress Bar */}
-                            {(taskState.status === 'PROGRESS' || taskState.status === 'STARTED') && taskState.progress !== null && (
+                            {/* Null check for progress */}
+                            {(taskState.status === 'PROGRESS' || taskState.status === 'STARTED') && typeof taskState.progress === 'number' && (
                                 <div className="pt-1">
                                     <Progress value={taskState.progress * 100} className="w-full" />
                                     <p className="text-sm text-muted-foreground pt-1">{Math.round(taskState.progress * 100)}% complete</p>
                                 </div>
                             )}
-                             {taskState.message && <p className="text-sm text-muted-foreground">{taskState.message}</p>}
-
-                             {/* --- Display Task Error --- */}
-                             {taskState.error && (
+                            {taskState.message && <p className="text-sm text-muted-foreground">{taskState.message}</p>}
+                            {taskState.error && (
                                 <Alert variant="destructive" className="mt-2">
-                                    <AlertCircle className="h-4 w-4" /> {/* Icon added */}
+                                    <AlertCircle className="h-4 w-4" />
                                     <AlertTitle>Task Error</AlertTitle>
-                                    <AlertDescription>
-                                        {taskState.error}
-                                    </AlertDescription>
+                                    <AlertDescription>{taskState.error}</AlertDescription>
                                 </Alert>
-                             )}
-
-                             {/* --- Download Button (Uses Corrected Link) --- */}
-                             {taskState.status === 'SUCCESS' && downloadLink && (
+                            )}
+                            {/* Download Button - href needs undefined check */}
+                            {taskState.status === 'SUCCESS' && downloadLink && (
                                 <Button variant="outline" size="sm" asChild className="mt-2">
-                                   <a href={downloadLink} download>Download Final Model (.pth)</a>
+                                    <a href={downloadLink} download>Download Final Model (.pth)</a>
                                 </Button>
-                             )}
-                             {/* Cancel Button (optional - requires backend endpoint) */}
-                             {/* {taskState.isActive && <Button variant="destructive" size="sm" onClick={handleCancel}>Cancel Task</Button>} */}
-                         </motion.div>
+                            )}
+                         </div>
                     ) : (
-                        // Placeholder when no task is active/submitted yet
-                         <p className="text-muted-foreground">Submit a task to see status and results.</p>
+                        <p className="text-muted-foreground">Submit a task to see status and results.</p>
                     )}
-                    </AnimatePresence>
+                     {/* --- End Status Block --- */}
 
-                     {/* Real-time Plot Area */}
-                     <div className="mt-4 h-64 border rounded bg-muted/20 flex items-center justify-center">
-                         { (taskState.isActive || taskState.status === 'SUCCESS') && fitnessHistory.length > 0 ? (
-                             <RealTimePlot data={fitnessHistory} /> // Pass fitness history data
-                         ) : (
-                            <p className="text-muted-foreground">{taskState.taskId ? "Plot will appear here..." : "Submit task for plot"}</p>
-                         )}
+                     {/* Plot Area (Unchanged) */}
+                     <div className="mt-4 h-72 border rounded bg-muted/20 flex items-center justify-center">
+                         { hasPlotData ? (
+                             <RealTimePlot
+                                maxFitnessData={plotData.maxFitness}
+                                avgFitnessData={plotData.avgFitness}
+                                diversityData={plotData.diversity}
+                             />
+                         ) : ( <p className="text-muted-foreground">{taskState.taskId ? "Plot will appear here..." : "Submit task for plot"}</p> )}
                      </div>
-                </CardContent>
-            </Card>
-        </div>
+                </CardContent> {/* Ensure CardContent closes */}
+            </Card> {/* Ensure Card closes */}
+        </div> // Ensure outer div closes
     );
-}
+} // Ensure export default closes
