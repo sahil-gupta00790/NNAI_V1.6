@@ -1,0 +1,32 @@
+# neural-nexus-backend/requirements.txt
+
+fastapi
+uvicorn[standard]
+celery[redis]>=5.3 # Consider updating celery which might update kombu
+redis
+pydantic
+pydantic-settings
+python-dotenv
+python-multipart
+requests
+# --- PyTorch Base (Installed manually via pip command) ---
+# torch
+# torchvision
+# torchaudio
+# ---------------------
+transformers>=4.43.0 # Keep relatively recent
+accelerate>=0.25.0  # Keep relatively recent
+huggingface-hub>=0.20.0 # Allow newer versions
+# flute-kernel # Removed as installed manually
+numpy
+# --- LlamaIndex RAG Dependencies (Allow newer versions) ---
+llama-index-core>=0.10.0 # Use recent versions
+llama-index-embeddings-huggingface # Let pip resolve
+llama-index-llms-huggingface # Let pip resolve
+llama-index-vector-stores-faiss # Let pip resolve
+llama-index-postprocessor-flag-embedding-reranker # Let pip resolve
+faiss-cpu # Or faiss-gpu if preferred/compatible
+# -----------------------------------
+werkzeug
+typing-extensions>=4.10.0 # Set a reasonable minimum, allow newer
+pypdf

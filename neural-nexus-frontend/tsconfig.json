@@ -1,0 +1,39 @@
+// neural-nexus-frontend/tsconfig.json
+{
+    "compilerOptions": {
+      // Standard type checking and module settings
+      "target": "es5", // Target modern JS features compatible with browsers
+      "lib": ["dom", "dom.iterable", "esnext"], // Include standard libraries
+      "allowJs": true, // Allow JavaScript files to be compiled
+      "skipLibCheck": true, // Skip type checking of all declaration files (*.d.ts)
+      "strict": true, // Enable all strict type-checking options
+      "esModuleInterop": true, // Enables emit interoperability between CommonJS and ES Modules
+      "module": "esnext", // Specify module code generation
+      "moduleResolution": "bundler", // Use modern module resolution (works well with Next.js/npm/pnpm/yarn)
+      "resolveJsonModule": true, // Include modules imported with .json extension
+      "isolatedModules": true, // Ensure files can be safely transpiled without relying on other imports
+      "noEmit": true, // Do not emit output files (Next.js handles transpilation)
+  
+      // --- Crucial Settings for Your Errors ---
+      "jsx": "preserve", // Preserve JSX for Next.js/React build process
+      "baseUrl": ".", // Base directory for path resolution (project root)
+      "paths": {
+        "@/*": ["./*"] // Define the '@/*' path alias to point to the project root
+                       // (Use "./src/*" if your code is inside an src/ folder)
+      },
+      // -----------------------------------------
+  
+      // Next.js specific settings
+      "incremental": true, // Enable incremental compilation
+      "plugins": [
+        {
+          "name": "next"
+        }
+      ],
+      "strictNullChecks": true // Part of 'strict', but explicitly good to have
+    },
+    // Files included in the TypeScript project
+    "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+    // Files excluded from the TypeScript project
+    "exclude": ["node_modules"]
+  }

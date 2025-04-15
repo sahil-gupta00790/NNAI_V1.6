@@ -1,0 +1,43 @@
+# neural-nexus-frontend/Dockerfile.frontend
+
+# ---- Builder Stage ----
+    FROM node:20-alpine AS builder
+
+    WORKDIR /app
+    
+    # Copy package files and install dependencies
+    # This layer is cached as long as package*.json doesn't change
+    COPY package*.json ./
+    RUN npm install
+    
+    # Copy the rest of the application code
+    COPY . .
+    
+    # Set NEXT_PUBLIC_API_URL from build args (if needed during build)
+    ARG NEXT_PUBLIC_API_URL
+    ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+    
+    # Run the build command
+    RUN npm run build
+    
+    # ---- Runner Stage ----
+    FROM node:20-alpine AS runner
+    
+    WORKDIR /app
+    
+    # Set NODE_ENV to production
+    ENV NODE_ENV=production
+    # Optionally disable telemetry
+    ENV NEXT_TELEMETRY_DISABLED=1
+    
+    # Copy necessary files from builder stage
+    COPY --from=builder /app/public ./public
+    COPY --from=builder /app/.next/standalone ./
+    COPY --from=builder /app/.next/static ./.next/static
+    
+    # Expose port
+    EXPOSE 3000
+    
+    # Default command to start the server
+    CMD ["node", "server.js"]
+    

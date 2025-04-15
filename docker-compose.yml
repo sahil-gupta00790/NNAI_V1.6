@@ -1,0 +1,89 @@
+services:
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app_network
+
+  backend:
+    build:
+      context: ./neural-nexus-backend
+      dockerfile: Dockerfile.backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./neural-nexus-backend:/code
+      - uploads:/code/uploads
+      - results:/code/results
+      - ./host_rag_storage:/code/storage
+      # CORRECTED MAPPING BELOW:
+      - ./host_rag_data/research_papers/raw_pdfs:/code/data/research_papers/raw_pdfs # Map host raw_pdfs to container raw_pdfs
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redis
+    env_file:
+      - .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - app_network
+
+  celery_worker:
+    build:
+      context: ./neural-nexus-backend
+      dockerfile: Dockerfile.backend
+    command: celery -A celery_worker.celery_app worker --loglevel=INFO -P solo
+    volumes:
+      - ./neural-nexus-backend:/code
+      - uploads:/code/uploads
+      - results:/code/results
+      - ./host_rag_storage:/code/storage
+      # CORRECTED MAPPING BELOW:
+      - ./host_rag_data/research_papers/raw_pdfs:/code/data/research_papers/raw_pdfs # Map host raw_pdfs to container raw_pdfs
+    depends_on:
+      - redis
+    env_file:
+      - .env
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    networks:
+      - app_network
+
+  frontend:
+    build:
+      context: ./neural-nexus-frontend
+      dockerfile: Dockerfile.frontend
+      #args:
+        #NEXT_PUBLIC_API_URL: http://backend:8000/api/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    environment:
+       NEXT_PUBLIC_API_URL: http://localhost:8000/api/v1
+    networks:
+      - app_network
+
+volumes:
+  redis_data:
+  uploads:
+  results:
+
+networks:
+  app_network:
+    driver: bridge
+
