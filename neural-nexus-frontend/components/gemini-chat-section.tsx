@@ -44,7 +44,7 @@ export default function GeminiChatSection() {
     useEffect(() => {
         // Use setTimeout to allow the DOM to update before scrolling
         setTimeout(scrollToBottom, 50); // Small delay can help ensure render completed
-    }, [displayHistory, isLoading]); // Add isLoading as a dependency
+    }, [displayHistory, isLoading]);
 
     const handleSendQuery = async (e?: FormEvent<HTMLFormElement>) => {
         e?.preventDefault();
@@ -108,20 +108,21 @@ export default function GeminiChatSection() {
                                     message.role === 'user' ? 'bg-primary text-primary-foreground' :
                                     message.role === 'model' ? 'bg-muted' : 'bg-destructive text-destructive-foreground'
                                 }`}>
-                                    {message.role === 'error' ? (
-                                        <p>{message.content}</p>
-                                    ) : (
-                                        <div className="prose dark:prose-invert prose-sm max-w-none">
+                                    {/* Consistent styling for both success & error messages */}
+                                    <div className="prose dark:prose-invert prose-sm max-w-none">
+                                        {message.role === 'error' ? (
+                                            <p>{message.content}</p>
+                                        ) : (
                                             <ReactMarkdown>
                                                 {message.content}
                                             </ReactMarkdown>
-                                        </div>
-                                    )}
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         ))}
 
-                        {/* --- ADD LOADING/THINKING INDICATOR --- */}
+                        {/* Loading indicator */}
                         {isLoading && (
                             <div className="flex justify-start"> {/* Align left like a model message */}
                                 <div className="p-3 rounded-lg bg-muted flex items-center space-x-2 max-w-[75%]">
@@ -132,7 +133,13 @@ export default function GeminiChatSection() {
                                 </div>
                             </div>
                         )}
-                        {/* --- END LOADING/THINKING INDICATOR --- */}
+
+                        {/* Force a child element  */}
+                        {displayHistory.length === 0 && !isLoading && (
+                            <p className="text-muted-foreground text-sm italic text-center">
+                                No messages yet. Start the conversation!
+                            </p>
+                        )}
 
                     </div>
                  </ScrollArea>
@@ -150,7 +157,6 @@ export default function GeminiChatSection() {
                         autoComplete="off"
                     />
                     <Button type="submit" disabled={isLoading || !query.trim()} size="icon">
-                        {/* Spinner in button remains */}
                         {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </Button>
                 </form>
