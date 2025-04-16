@@ -7,7 +7,6 @@ export async function postAdvisorQuery(query: string, history?: any[]) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ query, history }),
     });
-    // Add more robust error handling
     if (!response.ok) {
          const errorData = await response.json().catch(() => ({ detail: response.statusText }));
          throw new Error(`API Error (${response.status}): ${errorData.detail || 'Unknown RAG advisor error'}`);
@@ -27,8 +26,29 @@ export async function startEvolutionTask(formData: FormData) {
     return response.json();
 }
 
-export async function getTaskStatus(endpoint: 'evolver', taskId: string) { // Remove 'quantizer' from endpoint type [2]
-    // Simplified endpoint logic now that only evolver uses this
+// New Gemini analysis function
+export async function analyzeGaResults(data: {
+    fitness_history: number[];
+    avg_fitness_history: number[] | null;
+    diversity_history: number[] | null;
+    generations: number;
+    population_size: number;
+    mutation_rate?: number;
+    mutation_strength?: number;
+}): Promise<{ analysis_text: string }> {
+    const response = await fetch(`${API_BASE_URL}/analysis/ga`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+    });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+        throw new Error(`Analysis failed: ${errorData.detail || 'Unknown error'}`);
+    }
+    return response.json();
+}
+
+export async function getTaskStatus(endpoint: 'evolver', taskId: string) {
     if (endpoint !== 'evolver') {
         throw new Error(`Invalid endpoint type passed to getTaskStatus: ${endpoint}`);
     }
@@ -40,14 +60,6 @@ export async function getTaskStatus(endpoint: 'evolver', taskId: string) { // Re
     return response.json();
 }
 
-// Remove startQuantizationTask function entirely [2]
-/*
-export async function startQuantizationTask(formData: FormData) {
-     // ... removed code ...
-}
-*/
-
-// Optional: Remove reset chat function if not used, or keep it
 export async function postResetChat() {
     const response = await fetch(`${API_BASE_URL}/advisor/reset_chat`, { method: 'POST' });
     if (!response.ok) {
@@ -56,4 +68,3 @@ export async function postResetChat() {
     }
     return response.json();
 }
-

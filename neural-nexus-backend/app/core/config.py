@@ -18,6 +18,7 @@ class Settings(BaseSettings):
 
     # API Keys & Settings
     HF_TOKEN: str | None = None
+    GEMINI_API_KEY: str | None = None
     ALLOWED_ORIGINS: str = "http://localhost:3000"
 
     # Celery

@@ -9,41 +9,54 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Progress } from '@/components/ui/progress';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertCircle } from "lucide-react";
-import { startEvolutionTask } from '@/lib/api';
+import { AlertCircle, Loader2 } from "lucide-react"; // Import Loader2 for loading spinner
+import { startEvolutionTask, analyzeGaResults } from '@/lib/api'; // Import analyzeGaResults
 import { useTaskPolling } from '@/lib/hooks/useTaskPolling';
 import RealTimePlot from './real-time-plot';
 import { toast } from "sonner";
-import { motion, AnimatePresence } from "framer-motion"; // Keep imports even if unused temporarily
+import { motion, AnimatePresence } from "framer-motion";
+import ReactMarkdown from 'react-markdown'; // Import ReactMarkdown
 
-// --- CORRECTED Default JSON config ---
+// Default JSON config (Unchanged from previous correct version)
 const defaultJsonConfig = JSON.stringify(
   {
-    model_class: "MyCNN",
-    generations: 20,
-    population_size: 30,
-    selection_strategy: "tournament",
-    crossover_operator: "one_point",
-    mutation_operator: "gaussian",
-    elitism_count: 1,
-    mutation_rate: 0.15,
-    mutation_strength: 0.05,
-    // --- CORRECTED eval_config key ---
+    "model_class": "MyCNN",
+    "generations": 20,
+    "population_size": 30,
+    "selection_strategy": "tournament",
+    "crossover_operator": "one_point",
+    "mutation_operator": "gaussian",
+    "elitism_count": 1,
+    "mutation_rate": 0.15,
+    "mutation_strength": 0.05,
     "eval_config": {
-      "batch_size": 128 // Use underscore, ensure quotes are correct
+      "batch_size": 128
     }
-    // --- END CORRECTION ---
   }, null, 2
 );
 
+interface SubmittedConfig {
+    generations?: number;
+    population_size?: number;
+    mutation_rate?: number;
+    mutation_strength?: number;
+    // Add other expected config fields used in handleAnalyzeClick if needed
+  }
+
 export default function EvolverSection() {
-    // State (Unchanged)
+    // --- Existing State ---
     const [modelDefFile, setModelDefFile] = useState<File | null>(null);
     const [taskEvalFile, setTaskEvalFile] = useState<File | null>(null);
     const [weightsFile, setWeightsFile] = useState<File | null>(null);
     const [configJson, setConfigJson] = useState<string>(defaultJsonConfig);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [evalChoice, setEvalChoice] = useState<'standard' | 'custom'>('standard');
+    // --- End Existing State ---
+
+    // --- NEW State for Gemini Analysis ---
+    const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+    const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+    // --- End NEW State ---
 
     // Refs (Unchanged)
     const modelDefRef = useRef<HTMLInputElement>(null);
@@ -61,15 +74,17 @@ export default function EvolverSection() {
         }
     };
 
-    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => { // Explicit type for 'e'
+    // handleSubmit (Unchanged)
+    const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
-        // Validations (Unchanged)
+        // Validations
         if (!modelDefFile) { toast.error("Model Definition file is required."); return; }
         if (evalChoice === 'custom' && !taskEvalFile) { toast.error("Custom Evaluation Script file is required."); return; }
         if (taskState.isActive) { toast.warning("A task is already running."); return; }
         let parsedConfig;
         try {
             parsedConfig = JSON.parse(configJson);
+            // Basic validation - keep as is
             if (!parsedConfig.model_class || typeof parsedConfig.model_class !== 'string' || parsedConfig.model_class.trim() === "") { throw new Error("'model_class' key (string) is missing or invalid."); }
             if (typeof parsedConfig.generations !== 'number' || parsedConfig.generations < 1) { throw new Error("'generations' must be a positive number."); }
             if (typeof parsedConfig.population_size !== 'number' || parsedConfig.population_size < 2) { throw new Error("'population_size' must be at least 2."); }
@@ -78,10 +93,11 @@ export default function EvolverSection() {
         console.log("Frontend: Sending configJson string:", configJson);
 
         setIsSubmitting(true);
-        resetTaskState();
+        resetTaskState(); // Reset task state before starting new one
+        setAnalysisResult(null); // Also clear previous analysis on new run
+        setIsAnalyzing(false); // Ensure analysis state is reset
         toast("Submitting evolution task...");
 
-        // FormData (Unchanged)
         const formData = new FormData();
         formData.append('model_definition', modelDefFile);
         formData.append('use_standard_eval', String(evalChoice === 'standard'));
@@ -89,7 +105,6 @@ export default function EvolverSection() {
         if (weightsFile) formData.append('initial_weights', weightsFile);
         formData.append('config_json', configJson);
 
-        // API Call (Unchanged)
         try {
             const response = await startEvolutionTask(formData);
             startTask(response.task_id);
@@ -105,6 +120,61 @@ export default function EvolverSection() {
             setIsSubmitting(false);
         }
     };
+    // --- End handleSubmit ---
+
+    const handleAnalyzeClick = async () => {
+        // Ensure task is successful and result data (especially histories) is available
+        if (taskState.status !== 'SUCCESS' || !taskState.result || !Array.isArray(taskState.result.fitness_history)) {
+            toast.error("Task not successfully completed or result data is missing/invalid for analysis.");
+            return;
+        }
+
+        setIsAnalyzing(true);
+        setAnalysisResult(null); // Clear previous analysis
+
+        try {
+            // --- Parse submitted config safely ---
+            let submittedConfig: SubmittedConfig = {}; // Use interface or keep as {}
+            try {
+                // Attempt parsing, use type assertion if interface exists, or keep as any
+                submittedConfig = JSON.parse(configJson) as SubmittedConfig;
+            } catch {
+                toast.warning("Could not parse current JSON config for analysis context, using defaults.");
+                // submittedConfig remains {}
+            }
+
+            // --- Prepare data payload with type safety ---
+            const analysisPayload = {
+                // Histories: Convert undefined from taskState to null for API call
+                fitness_history: taskState.result.fitness_history, // Already checked this is an array
+                avg_fitness_history: taskState.result.avg_fitness_history ?? null,
+                diversity_history: taskState.result.diversity_history ?? null,
+
+                // Config Context: Use ?. optional chaining and ?? nullish coalescing for defaults
+                generations: submittedConfig?.generations ?? taskState.result.fitness_history.length, // Default to actual generations run
+                population_size: submittedConfig?.population_size ?? 0, // Default to 0 or another sensible value if not parsed
+                mutation_rate: submittedConfig?.mutation_rate, // Will be undefined if not present, which matches API expectation
+                mutation_strength: submittedConfig?.mutation_strength // Will be undefined if not present
+            };
+
+            // Minimal validation before sending
+            if (analysisPayload.generations <= 0) {
+                 throw new Error("Invalid generation count for analysis.");
+            }
+
+            toast.info("Requesting analysis from Gemini AI...");
+            const response = await analyzeGaResults(analysisPayload); // Pass the correctly typed payload
+            setAnalysisResult(response.analysis_text);
+            toast.success("Analysis received!");
+
+        } catch (error: any) {
+            console.error("Error fetching analysis:", error);
+            toast.error(`Failed to generate analysis: ${error.message || 'Unknown error'}`);
+        } finally {
+            setIsAnalyzing(false);
+        }
+    };
+    // --- End handleAnalyzeClick ---
 
     // Plot Data Prep (Unchanged)
     const plotData = {
@@ -114,25 +184,22 @@ export default function EvolverSection() {
     };
     const hasPlotData = plotData.maxFitness.length > 0 || plotData.avgFitness.length > 0 || plotData.diversity.length > 0;
 
-    // Download Link (Handle null for href)
+    // Download Link (Unchanged)
     const downloadLink = taskState.status === 'SUCCESS' && taskState.result?.final_model_path && taskState.taskId
         ? `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'}/api/v1/evolver/results/${taskState.taskId}/download`
-        : undefined; // Use undefined for missing href, null is invalid
+        : undefined;
 
     // --- Component Return ---
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Form Card */}
+            {/* Form Card (Unchanged) */}
             <Card>
-                <CardHeader>
-                    <CardTitle>Configure Evolution</CardTitle>
-                    <CardDescription>Upload files and configure GA parameters via JSON.</CardDescription>
-                </CardHeader>
+                {/* ... CardHeader ... */}
                 <CardContent>
-                    {/* --- CORRECTED JSX STRUCTURE --- */}
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        {/* File Inputs */}
-                        <div>
+                        {/* ... File Inputs, Radio Group, Config JSON Textarea, Submit Button ... */}
+                         {/* File Inputs */}
+                         <div>
                             <Label htmlFor="model-def">Model Definition (.py) <span className="text-red-500">*</span></Label>
                             <Input ref={modelDefRef} id="model-def" type="file" accept=".py" required onChange={(e: ChangeEvent<HTMLInputElement>) => setModelDefFile(e.target.files?.[0] ?? null)} disabled={isSubmitting || taskState.isActive} />
                         </div>
@@ -149,7 +216,7 @@ export default function EvolverSection() {
                                 </div>
                             </RadioGroup>
                         </div>
-                        {/* Keep inner AnimatePresence, ensure it wraps ONLY the conditional element */}
+                        {/* Keep inner AnimatePresence */}
                         <AnimatePresence>
                             {evalChoice === 'custom' && (
                                 <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3 }} className="mt-2">
@@ -182,7 +249,6 @@ export default function EvolverSection() {
                             {isSubmitting ? "Submitting..." : taskState.isActive ? "Task Running..." : "Start Evolution"}
                         </Button>
                     </form>
-                     {/* --- END CORRECTED JSX --- */}
                 </CardContent>
             </Card>
 
@@ -193,13 +259,12 @@ export default function EvolverSection() {
                     <CardDescription>Monitor the evolution progress in real-time.</CardDescription>
                  </CardHeader>
                 <CardContent className="space-y-4">
-                   {/* Still keep outer AnimatePresence/motion.div removed for testing */}
+                    {/* --- Status Display Block --- */}
                     {taskState.taskId ? (
-                         <div key={taskState.taskId} className="space-y-2" > {/* Use simple div */}
-                            {/* Status Display Content */}
+                         <div key={taskState.taskId} className="space-y-2" >
+                            {/* Status Info */}
                             <p>Task ID: <span className="font-mono text-sm bg-muted px-1 rounded">{taskState.taskId}</span></p>
                             <p>Status: <span className={`font-semibold ${taskState.status === 'SUCCESS' ? 'text-green-600' : taskState.status === 'FAILURE' ? 'text-red-600' : ''}`}>{taskState.status || 'N/A'}</span></p>
-                            {/* Null check for progress */}
                             {(taskState.status === 'PROGRESS' || taskState.status === 'STARTED') && typeof taskState.progress === 'number' && (
                                 <div className="pt-1">
                                     <Progress value={taskState.progress * 100} className="w-full" />
@@ -208,18 +273,56 @@ export default function EvolverSection() {
                             )}
                             {taskState.message && <p className="text-sm text-muted-foreground">{taskState.message}</p>}
                             {taskState.error && (
-                                <Alert variant="destructive" className="mt-2">
-                                    <AlertCircle className="h-4 w-4" />
-                                    <AlertTitle>Task Error</AlertTitle>
-                                    <AlertDescription>{taskState.error}</AlertDescription>
-                                </Alert>
+                                <Alert variant="destructive" className="mt-2"> <AlertCircle className="h-4 w-4" /> <AlertTitle>Task Error</AlertTitle> <AlertDescription>{taskState.error}</AlertDescription> </Alert>
                             )}
-                            {/* Download Button - href needs undefined check */}
-                            {taskState.status === 'SUCCESS' && downloadLink && (
+                            {/* --- Download Button --- */}
+                            {taskState.status === 'SUCCESS' && downloadLink !== undefined && (
                                 <Button variant="outline" size="sm" asChild className="mt-2">
                                     <a href={downloadLink} download>Download Final Model (.pth)</a>
                                 </Button>
                             )}
+
+                            {/* --- NEW: Gemini Analysis Section --- */}
+                            {taskState.status === 'SUCCESS' && taskState.result?.fitness_history && ( // Render only if successful and history exists
+                                <div className="mt-4 pt-4 border-t"> {/* Add separator */}
+                                    <Button
+                                        onClick={handleAnalyzeClick}
+                                        disabled={isAnalyzing || !taskState.result?.fitness_history} // Disable if no history
+                                        variant="secondary"
+                                    >
+                                        {isAnalyzing ? (
+                                            <> <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing... </>
+                                        ) : ( "Analyze Results with Gemini" )}
+                                    </Button>
+
+                                    {/* Loading Indicator */}
+                                    {isAnalyzing && (
+                                        <p className="text-sm text-muted-foreground mt-2"> Contacting Gemini AI, this may take a moment... </p>
+                                    )}
+
+                                    {/* Analysis Result Display */}
+                                    {analysisResult && !isAnalyzing && ( // Show only when not loading and result exists
+                                        <Card className="mt-4 bg-muted/50"> {/* Slightly different background */}
+                                             <CardHeader className="pb-2 pt-4">
+                                                 <CardTitle className="text-lg">Gemini Analysis</CardTitle>
+                                             </CardHeader>
+                                            <CardContent className="p-4 prose dark:prose-invert prose-sm max-w-none">
+                                                {/* Render analysis text using ReactMarkdown */}
+                                                <ReactMarkdown
+                                                    components={{ // Optional: Customize rendering if needed
+                                                        // Example: Make links open in new tab
+                                                        // a: ({node, ...props}) => <a target="_blank" rel="noopener noreferrer" {...props} />
+                                                    }}
+                                                >
+                                                    {analysisResult}
+                                                </ReactMarkdown>
+                                            </CardContent>
+                                        </Card>
+                                    )}
+                                </div>
+                            )}
+                            {/* --- End Gemini Analysis Section --- */}
+
                          </div>
                     ) : (
                         <p className="text-muted-foreground">Submit a task to see status and results.</p>
@@ -236,8 +339,8 @@ export default function EvolverSection() {
                              />
                          ) : ( <p className="text-muted-foreground">{taskState.taskId ? "Plot will appear here..." : "Submit task for plot"}</p> )}
                      </div>
-                </CardContent> {/* Ensure CardContent closes */}
-            </Card> {/* Ensure Card closes */}
-        </div> // Ensure outer div closes
+                </CardContent>
+            </Card>
+        </div>
     );
-} // Ensure export default closes
+}
