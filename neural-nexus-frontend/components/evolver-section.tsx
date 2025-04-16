@@ -205,11 +205,7 @@ export default function EvolverSection() {
     };
     // --- End handleSubmit ---
 
-<<<<<<< HEAD
-    // handleAnalyzeClick (Uses formData for context)
-=======
     // handleAnalyzeClick (No changes - trailing comma is fine)
->>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
     const handleAnalyzeClick = async () => {
         if (taskState.status !== 'SUCCESS' || !taskState.result || !Array.isArray(taskState.result.fitness_history)) { toast.error("Task not successfully completed or result data is missing/invalid for analysis."); return; }
         setIsAnalyzing(true);
@@ -253,7 +249,6 @@ export default function EvolverSection() {
                 population_size: populationSize,
                 mutation_rate: mutationRate,
                 mutation_strength: mutationStrength, // Trailing comma is fine
->>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
             };
             if (analysisPayload.generations <= 0) { throw new Error("Invalid generation count for analysis."); }
             toast.info("Requesting analysis from Gemini AI...");
@@ -329,25 +324,6 @@ export default function EvolverSection() {
 
                                     return (
                                         <div key={param.name} className="grid grid-cols-3 items-center gap-x-4 gap-y-1">
-<<<<<<< HEAD
-                                            <Label htmlFor={inputId} className="col-span-1 flex items-center text-sm">
-                                                {param.label}
-                                                {/* {param.description && (
-                                                    <Tooltip>
-                                                        <TooltipTrigger asChild>
-                                                            <Button variant="ghost" size="icon" className="h-4 w-4 ml-1 p-0 hover:bg-transparent focus-visible:ring-0">
-                                                                <HelpCircle className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
-                                                            </Button>
-                                                        </TooltipTrigger>
-                                                        <TooltipContent side="right" className="max-w-xs text-xs" sideOffset={5}>
-                                                            <p>{param.description}</p>
-                                                        </TooltipContent>
-                                                    </Tooltip>
-                                                )} */}
-                                            </Label>
-                                            <div className="col-span-2">
-                                                {/* Conditional Rendering based on type */}
-=======
                                             <Label htmlFor={inputId} className="col-span-1 flex items-start text-sm whitespace-nowrap">
                                                {/* FIX: Wrap adjacent label text and tooltip in a Span */}
                                                 
@@ -367,7 +343,6 @@ export default function EvolverSection() {
                                             </Label>
                                             <div className="col-span-2">
                                                 {/* Input controls - No changes needed here */}
->>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
                                                 {(param.type === 'number' || param.type === 'float') && (
                                                     <Input
                                                         id={inputId}
@@ -456,10 +431,6 @@ export default function EvolverSection() {
                            {(taskState.status === 'PROGRESS' || taskState.status === 'STARTED') && typeof taskState.progress === 'number' && ( <div className="pt-1"> <Progress value={taskState.progress * 100} className="w-full" /> <p className="text-sm text-muted-foreground pt-1">{Math.round(taskState.progress * 100)}% complete</p> </div> )}
                            {taskState.message && <p className="text-sm text-muted-foreground">{taskState.message}</p>}
                            {taskState.error && ( <Alert variant="destructive" className="mt-2"> <AlertCircle className="h-4 w-4" /> <AlertTitle>Task Error</AlertTitle> <AlertDescription>{taskState.error}</AlertDescription> </Alert> )}
-<<<<<<< HEAD
-                           {/* Download Button */}
-                           {taskState.status === 'SUCCESS' && downloadLink !== undefined && ( <Button variant="outline" size="sm" asChild className="mt-2"> <a href={downloadLink} download>Download Final Model (.pth)</a> </Button> )}
-=======
 
                            {/* FIX: Download Button - Ensure <a> is the DIRECT child */}
                            {taskState.status === 'SUCCESS' && downloadLink !== undefined && (
@@ -468,18 +439,11 @@ export default function EvolverSection() {
                                     <a href={downloadLink} download>Download Final Model (.pth)</a>
                                 </Button>
                            )}
->>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
 
                            {/* Gemini Analysis Section */}
                            {taskState.status === 'SUCCESS' && taskState.result?.fitness_history && (
                                <div className="mt-4 pt-4 border-t">
-<<<<<<< HEAD
-                                   <Button onClick={handleAnalyzeClick} disabled={isAnalyzing || !taskState.result?.fitness_history} variant="secondary">
-                                       {isAnalyzing ? ( <> <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing... </> ) : ( "Analyze Results with Gemini" )}
-                                   </Button>
-=======
                                    <Button onClick={handleAnalyzeClick} disabled={ isAnalyzing || !taskState.result?.fitness_history || typeof formData.population_size !== 'number' || typeof formData.generations !== 'number' } variant="secondary" > {isAnalyzing ? ( <> <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing... </> ) : ( "Analyze Results with Gemini" )} </Button>
->>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
                                    {isAnalyzing && ( <p className="text-sm text-muted-foreground mt-2"> Contacting Gemini AI, this may take a moment... </p> )}
                                    {/* ADD A PLACEHOLDER COMPONENT HERE */}
                                    {!analysisResult && !isAnalyzing && (
@@ -502,13 +466,7 @@ export default function EvolverSection() {
                      {/* End Status Block */}
 
                      {/* Plot Area */}
-<<<<<<< HEAD
-                     <div className="mt-4 h-72 border rounded bg-muted/20 flex items-center justify-center">
-                         { hasPlotData ? ( <RealTimePlot maxFitnessData={plotData.maxFitness} avgFitnessData={plotData.avgFitness} diversityData={plotData.diversity} />) : ( <p className="text-muted-foreground">{taskState.taskId ? "Plot will appear here..." : "Submit task for plot"}</p> )}
-                     </div>
-=======
                      <div className="mt-4 h-72 border rounded bg-muted/20 flex items-center justify-center"> { hasPlotData ? ( <RealTimePlot maxFitnessData={plotData.maxFitness} avgFitnessData={plotData.avgFitness} diversityData={plotData.diversity}/> ) : ( <p className="text-muted-foreground">{taskState.taskId ? "Plot will appear here..." : "Submit task for plot"}</p> )} </div>
->>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
                 </CardContent>
             </Card>
         </div>
