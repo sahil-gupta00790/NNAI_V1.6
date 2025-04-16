@@ -207,55 +207,67 @@ export default function EvolverSection() {
 
     // handleAnalyzeClick (No changes - trailing comma is fine)
     const handleAnalyzeClick = async () => {
-        if (taskState.status !== 'SUCCESS' || !taskState.result || !Array.isArray(taskState.result.fitness_history)) { toast.error("Task not successfully completed or result data is missing/invalid for analysis."); return; }
+        if (taskState.status !== 'SUCCESS' || !taskState.result || !Array.isArray(taskState.result.fitness_history)) {
+            toast.error("Task not successfully completed or result data is missing/invalid for analysis.");
+            return;
+        }
         setIsAnalyzing(true);
         setAnalysisResult(null);
         try {
-            // Use current formData state for config context
-            const configContext: ConfigContextForAnalysis = formData; // Cast or use directly
+            // --- BEGIN VALIDATION ---
+            const fitnessHistory = taskState.result.fitness_history;
+            const avgFitnessHistory = taskState.result.avg_fitness_history ?? null;
+            const diversityHistory = taskState.result.diversity_history ?? null;
 
-<<<<<<< HEAD
-            const analysisPayload = {
-                fitness_history: taskState.result.fitness_history,
-                avg_fitness_history: taskState.result.avg_fitness_history ?? null,
-                diversity_history: taskState.result.diversity_history ?? null,
-                // Safely access config context with defaults
-                generations: typeof configContext?.generations === 'number' ? configContext.generations : taskState.result.fitness_history.length,
-                population_size: typeof configContext?.population_size === 'number' ? configContext.population_size : 0,
-                mutation_rate: typeof configContext?.mutation_rate === 'number' ? configContext.mutation_rate : undefined,
-                mutation_strength: typeof configContext?.mutation_strength === 'number' ? configContext.mutation_strength : undefined,
-=======
+            // Validate and get generations (using formData first, fallback to history)
             let generations: number | undefined = typeof formData.generations === 'number' ? formData.generations : undefined;
             if (!generations || generations <= 0) {
                 const historyLength = fitnessHistory?.length;
-                if (historyLength && historyLength > 0) { generations = historyLength; }
-                else { toast.error("Invalid or missing generation count. Cannot perform analysis."); setIsAnalyzing(false); return; }
+                if (historyLength && historyLength > 0) {
+                    generations = historyLength;
+                } else {
+                    toast.error("Invalid or missing generation count. Cannot perform analysis.");
+                    setIsAnalyzing(false); return;
+                }
             }
 
+            // Validate and get population size (must be valid in formData)
             const populationSize: number | undefined = typeof formData.population_size === 'number' ? formData.population_size : undefined;
              if (typeof populationSize !== 'number') {
                  toast.error("Population size is missing or invalid in the configuration. Cannot perform analysis.");
                  setIsAnalyzing(false); return;
              }
 
+             // Get optional parameters from formData
              const mutationRate: number | undefined = typeof formData.mutation_rate === 'number' ? formData.mutation_rate : undefined;
              const mutationStrength: number | undefined = typeof formData.mutation_strength === 'number' ? formData.mutation_strength : undefined;
+             // Add dynamic params from formData here if they were implemented
+            // --- END VALIDATION ---
 
+            // --- Construct final payload ---
             const finalPayload = {
                 fitness_history: fitnessHistory,
                 avg_fitness_history: avgFitnessHistory,
                 diversity_history: diversityHistory,
-                generations: generations,
-                population_size: populationSize,
-                mutation_rate: mutationRate,
-                mutation_strength: mutationStrength, // Trailing comma is fine
+                generations: generations, // Guaranteed number
+                population_size: populationSize, // Guaranteed number
+                mutation_rate: mutationRate, // Optional
+                mutation_strength: mutationStrength, // Optional
+                // Add other relevant dynamic params from formData if needed by backend
             };
-            if (analysisPayload.generations <= 0) { throw new Error("Invalid generation count for analysis."); }
+            // --- END Payload Construction ---
+
             toast.info("Requesting analysis from Gemini AI...");
-            const response = await analyzeGaResults(analysisPayload);
+            const response = await analyzeGaResults(finalPayload); // Use finalPayload
             setAnalysisResult(response.analysis_text);
             toast.success("Analysis received!");
-        } catch (error: any) { console.error("Error fetching analysis:", error); toast.error(`Failed to generate analysis: ${error.message || 'Unknown error'}`); } finally { setIsAnalyzing(false); }
+
+        } catch (error: any) {
+            console.error("Error fetching analysis:", error);
+            toast.error(`Failed to generate analysis: ${error.message || 'Unknown error'}`);
+        } finally {
+            setIsAnalyzing(false);
+        }
     };
     // --- End handleAnalyzeClick ---
 
