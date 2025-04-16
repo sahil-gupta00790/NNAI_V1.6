@@ -7,7 +7,7 @@ import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import ReactMarkdown from 'react-markdown';
 import { postGeminiQuery } from '@/lib/api';
-import { Loader2, Send } from 'lucide-react'; // Loader2 is already imported
+import { Loader2, Send } from 'lucide-react';
 import { toast } from 'sonner';
 
 // Interface matching backend/Gemini format
@@ -42,8 +42,7 @@ export default function GeminiChatSection() {
 
     // Scroll to bottom when displayHistory changes OR when loading starts
     useEffect(() => {
-        // Use setTimeout to allow the DOM to update before scrolling
-        setTimeout(scrollToBottom, 50); // Small delay can help ensure render completed
+        setTimeout(scrollToBottom, 50);
     }, [displayHistory, isLoading]);
 
     const handleSendQuery = async (e?: FormEvent<HTMLFormElement>) => {
@@ -51,15 +50,13 @@ export default function GeminiChatSection() {
         const trimmedQuery = query.trim();
         if (!trimmedQuery || isLoading) return;
 
-        setIsLoading(true); // Loading starts HERE
+        setIsLoading(true);
         const userQueryText = trimmedQuery;
         setQuery('');
 
         const userDisplayMessage: DisplayMessage = { id: `user-${Date.now()}`, role: 'user', content: userQueryText };
-        // Update display history IMMEDIATELY with user message
         setDisplayHistory(prev => [...prev, userDisplayMessage]);
 
-        // Prepare history for API *after* adding user message to display
         const historyToSend = [...geminiHistory];
 
         try {
@@ -67,10 +64,8 @@ export default function GeminiChatSection() {
             const modelReply = response.reply;
 
             const modelDisplayMessage: DisplayMessage = { id: `model-${Date.now()}`, role: 'model', content: modelReply };
-            // Update display history with model response
             setDisplayHistory(prev => [...prev, modelDisplayMessage]);
 
-            // Update Gemini history state AFTER successful response
             setGeminiHistory(prev => [
                 ...prev,
                 { role: 'user', parts: [{ text: userQueryText }] },
@@ -83,8 +78,7 @@ export default function GeminiChatSection() {
             setDisplayHistory(prev => [...prev, errorMessage]);
             toast.error(`Gemini Chat Error: ${error.message || 'Unknown error'}`);
         } finally {
-            setIsLoading(false); // Loading ends HERE
-            // Ensure focus returns to input after sending
+            setIsLoading(false);
             setTimeout(() => document.getElementById('gemini-chat-input')?.focus(), 0);
         }
     };
@@ -101,30 +95,29 @@ export default function GeminiChatSection() {
             <CardContent className="flex-grow p-4 overflow-hidden">
                  <ScrollArea className="h-[calc(100vh-220px)] pr-4" ref={scrollAreaRef}> {/* Adjust height if needed */}
                     <div className="space-y-4">
-                        {/* Map over existing messages */}
                         {displayHistory.map((message) => (
                             <div key={message.id} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                                 <div className={`p-3 rounded-lg max-w-[75%] break-words ${
-                                    message.role === 'user' ? 'bg-primary text-primary-foreground' :
-                                    message.role === 'model' ? 'bg-muted' : 'bg-destructive text-destructive-foreground'
+                                    message.role === 'user' ? 'bg-primary text-primary-foreground' : // User: Dark BG, Light Text
+                                    message.role === 'model' ? 'bg-muted' : // Model: Muted BG (prose will handle text)
+                                    'bg-destructive text-destructive-foreground' // Error: Destructive BG+Text
                                 }`}>
-                                    {/* Consistent styling for both success & error messages */}
-                                    <div className="prose dark:prose-invert prose-sm max-w-none">
-                                        {message.role === 'error' ? (
-                                            <p>{message.content}</p>
-                                        ) : (
-                                            <ReactMarkdown>
-                                                {message.content}
-                                            </ReactMarkdown>
-                                        )}
-                                    </div>
+                                    {/* FIX: Conditionally apply prose and ReactMarkdown ONLY for model messages */}
+                                    {message.role === 'model' ? (
+                                        <div className="prose prose-sm max-w-none">
+                                            <ReactMarkdown>{message.content}</ReactMarkdown>
+                                        </div>
+                                    ) : (
+                                        // For user and error messages, render text directly
+                                        // This allows text-primary-foreground or text-destructive-foreground to apply
+                                        <p>{message.content}</p>
+                                    )}
                                 </div>
                             </div>
                         ))}
 
-                        {/* Loading indicator */}
                         {isLoading && (
-                            <div className="flex justify-start"> {/* Align left like a model message */}
+                            <div className="flex justify-start">
                                 <div className="p-3 rounded-lg bg-muted flex items-center space-x-2 max-w-[75%]">
                                     <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                                     <span className="text-sm text-muted-foreground italic">
@@ -134,7 +127,6 @@ export default function GeminiChatSection() {
                             </div>
                         )}
 
-                        {/* Force a child element  */}
                         {displayHistory.length === 0 && !isLoading && (
                             <p className="text-muted-foreground text-sm italic text-center">
                                 No messages yet. Start the conversation!

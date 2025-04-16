@@ -25,13 +25,12 @@ const gaParameterSchema = [
   { name: 'population_size', label: 'Population Size', type: 'number', defaultValue: 30, min: 2, max: 500, step: 1, description: 'Number of individuals in each generation.' },
   { name: 'selection_strategy', label: 'Selection Strategy', type: 'select', defaultValue: 'tournament', options: [ { value: 'tournament', label: 'Tournament' }, { value: 'roulette', label: 'Roulette Wheel' } ], description: 'Method for selecting parents for reproduction.'},
   { name: 'tournament_size', label: 'Tournament Size', type: 'number', defaultValue: 3, min: 2, max: 20, step: 1, condition: (formData: Record<string, any>) => formData.selection_strategy === 'tournament', description: 'Number of individuals competing in each tournament selection.' }, // Conditional field
-  { name: 'crossover_operator', label: 'Crossover Operator', type: 'select', defaultValue: 'one_point', options: [ { value: 'one_point', label: 'One Point' }, { value: 'uniform', label: 'Uniform' }, { value: 'average', label: 'Average' } ], description: 'Method for combining parent weights to create offspring.' },
+  { name: 'crossover_operator', label: 'CrossoverOperator', type: 'select', defaultValue: 'one_point', options: [ { value: 'one_point', label: 'One Point' }, { value: 'uniform', label: 'Uniform' }, { value: 'average', label: 'Average' } ], description: 'Method for combining parent weights to create offspring.' },
   { name: 'uniform_crossover_prob', label: 'Uniform Crossover Prob', type: 'slider', defaultValue: 0.5, min: 0, max: 1, step: 0.01, condition: (formData: Record<string, any>) => formData.crossover_operator === 'uniform', description: 'Probability of swapping genes between parents in uniform crossover.' }, // Conditional field
   { name: 'mutation_operator', label: 'Mutation Operator', type: 'select', defaultValue: 'gaussian', options: [ { value: 'gaussian', label: 'Gaussian Noise' }, { value: 'uniform_random', label: 'Uniform Random Replacement' } ], description: 'Method for introducing random changes to offspring weights.' },
   { name: 'mutation_rate', label: 'Mutation Rate', type: 'slider', defaultValue: 0.15, min: 0, max: 1, step: 0.01, description: 'Probability of each weight being mutated.' },
   { name: 'mutation_strength', label: 'Mutation Strength', type: 'float', defaultValue: 0.05, min: 0, step: 0.001, description: 'Magnitude of mutation (e.g., std dev for Gaussian). Use eval_config for uniform range details.' }, // Input for strength/std dev
   { name: 'elitism_count', label: 'Elitism Count', type: 'number', defaultValue: 1, min: 0, max: 10, step: 1, description: 'Number of best individuals carried directly to the next generation.' },
-  // --- eval_config specific common field ---
   { name: 'eval_batch_size', label: 'Eval Batch Size', type: 'number', defaultValue: 128, min: 1, max: 1024, step: 1, description: 'Batch size used during model evaluation (passed in eval_config).'}
 ];
 // --- End Schema ---
@@ -39,15 +38,11 @@ const gaParameterSchema = [
 // --- Helper to initialize state from schema ---
 function getInitialFormData() {
   const initialData: Record<string, any> = {};
-  gaParameterSchema.forEach(param => {
-    initialData[param.name] = param.defaultValue;
-  });
-  // --- IMPORTANT: Add fields NOT in the schema but needed by backend ---
-  initialData['model_class'] = 'MyCNN'; // Keep default or make it an input
-  initialData['model_args'] = []; // Default or manage separately
-  initialData['model_kwargs'] = {}; // Default or manage separately
-  initialData['eval_config'] = { batch_size: initialData['eval_batch_size'] }; // Initialize eval_config using the specific field
-  // Remove the temporary key used for UI only
+  gaParameterSchema.forEach(param => { initialData[param.name] = param.defaultValue; });
+  initialData['model_class'] = 'MyCNN';
+  initialData['model_args'] = [];
+  initialData['model_kwargs'] = {};
+  initialData['eval_config'] = { batch_size: initialData['eval_batch_size'] };
   delete initialData['eval_batch_size'];
   return initialData;
 }
@@ -210,7 +205,11 @@ export default function EvolverSection() {
     };
     // --- End handleSubmit ---
 
+<<<<<<< HEAD
     // handleAnalyzeClick (Uses formData for context)
+=======
+    // handleAnalyzeClick (No changes - trailing comma is fine)
+>>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
     const handleAnalyzeClick = async () => {
         if (taskState.status !== 'SUCCESS' || !taskState.result || !Array.isArray(taskState.result.fitness_history)) { toast.error("Task not successfully completed or result data is missing/invalid for analysis."); return; }
         setIsAnalyzing(true);
@@ -219,6 +218,7 @@ export default function EvolverSection() {
             // Use current formData state for config context
             const configContext: ConfigContextForAnalysis = formData; // Cast or use directly
 
+<<<<<<< HEAD
             const analysisPayload = {
                 fitness_history: taskState.result.fitness_history,
                 avg_fitness_history: taskState.result.avg_fitness_history ?? null,
@@ -228,6 +228,32 @@ export default function EvolverSection() {
                 population_size: typeof configContext?.population_size === 'number' ? configContext.population_size : 0,
                 mutation_rate: typeof configContext?.mutation_rate === 'number' ? configContext.mutation_rate : undefined,
                 mutation_strength: typeof configContext?.mutation_strength === 'number' ? configContext.mutation_strength : undefined,
+=======
+            let generations: number | undefined = typeof formData.generations === 'number' ? formData.generations : undefined;
+            if (!generations || generations <= 0) {
+                const historyLength = fitnessHistory?.length;
+                if (historyLength && historyLength > 0) { generations = historyLength; }
+                else { toast.error("Invalid or missing generation count. Cannot perform analysis."); setIsAnalyzing(false); return; }
+            }
+
+            const populationSize: number | undefined = typeof formData.population_size === 'number' ? formData.population_size : undefined;
+             if (typeof populationSize !== 'number') {
+                 toast.error("Population size is missing or invalid in the configuration. Cannot perform analysis.");
+                 setIsAnalyzing(false); return;
+             }
+
+             const mutationRate: number | undefined = typeof formData.mutation_rate === 'number' ? formData.mutation_rate : undefined;
+             const mutationStrength: number | undefined = typeof formData.mutation_strength === 'number' ? formData.mutation_strength : undefined;
+
+            const finalPayload = {
+                fitness_history: fitnessHistory,
+                avg_fitness_history: avgFitnessHistory,
+                diversity_history: diversityHistory,
+                generations: generations,
+                population_size: populationSize,
+                mutation_rate: mutationRate,
+                mutation_strength: mutationStrength, // Trailing comma is fine
+>>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
             };
             if (analysisPayload.generations <= 0) { throw new Error("Invalid generation count for analysis."); }
             toast.info("Requesting analysis from Gemini AI...");
@@ -303,6 +329,7 @@ export default function EvolverSection() {
 
                                     return (
                                         <div key={param.name} className="grid grid-cols-3 items-center gap-x-4 gap-y-1">
+<<<<<<< HEAD
                                             <Label htmlFor={inputId} className="col-span-1 flex items-center text-sm">
                                                 {param.label}
                                                 {/* {param.description && (
@@ -320,6 +347,27 @@ export default function EvolverSection() {
                                             </Label>
                                             <div className="col-span-2">
                                                 {/* Conditional Rendering based on type */}
+=======
+                                            <Label htmlFor={inputId} className="col-span-1 flex items-start text-sm whitespace-nowrap">
+                                               {/* FIX: Wrap adjacent label text and tooltip in a Span */}
+                                                
+                                                    {param.label}
+                                                    {param.description && (
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                {/* Single child for TooltipTrigger */}
+                                                                <HelpCircle className="h-3.5 w-3.5 ml-1.5 text-muted-foreground hover:text-foreground cursor-help" />
+                                                            </TooltipTrigger>
+                                                            <TooltipContent side="right" className="max-w-xs text-xs" sideOffset={5}>
+                                                                <p>{param.description}</p>
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    )}
+                                                
+                                            </Label>
+                                            <div className="col-span-2">
+                                                {/* Input controls - No changes needed here */}
+>>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
                                                 {(param.type === 'number' || param.type === 'float') && (
                                                     <Input
                                                         id={inputId}
@@ -405,23 +453,33 @@ export default function EvolverSection() {
                            {/* Status Info */}
                            <p>Task ID: <span className="font-mono text-sm bg-muted px-1 rounded">{taskState.taskId}</span></p>
                            <p>Status: <span className={`font-semibold ${taskState.status === 'SUCCESS' ? 'text-green-600' : taskState.status === 'FAILURE' ? 'text-red-600' : ''}`}>{taskState.status || 'N/A'}</span></p>
-                           {(taskState.status === 'PROGRESS' || taskState.status === 'STARTED') && typeof taskState.progress === 'number' && (
-                               <div className="pt-1">
-                                   <Progress value={taskState.progress * 100} className="w-full" />
-                                   <p className="text-sm text-muted-foreground pt-1">{Math.round(taskState.progress * 100)}% complete</p>
-                               </div>
-                           )}
+                           {(taskState.status === 'PROGRESS' || taskState.status === 'STARTED') && typeof taskState.progress === 'number' && ( <div className="pt-1"> <Progress value={taskState.progress * 100} className="w-full" /> <p className="text-sm text-muted-foreground pt-1">{Math.round(taskState.progress * 100)}% complete</p> </div> )}
                            {taskState.message && <p className="text-sm text-muted-foreground">{taskState.message}</p>}
                            {taskState.error && ( <Alert variant="destructive" className="mt-2"> <AlertCircle className="h-4 w-4" /> <AlertTitle>Task Error</AlertTitle> <AlertDescription>{taskState.error}</AlertDescription> </Alert> )}
+<<<<<<< HEAD
                            {/* Download Button */}
                            {taskState.status === 'SUCCESS' && downloadLink !== undefined && ( <Button variant="outline" size="sm" asChild className="mt-2"> <a href={downloadLink} download>Download Final Model (.pth)</a> </Button> )}
+=======
+
+                           {/* FIX: Download Button - Ensure <a> is the DIRECT child */}
+                           {taskState.status === 'SUCCESS' && downloadLink !== undefined && (
+                                <Button variant="outline" size="sm" asChild className="mt-2">
+                                    {/* Removed the extra <span> wrap */}
+                                    <a href={downloadLink} download>Download Final Model (.pth)</a>
+                                </Button>
+                           )}
+>>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
 
                            {/* Gemini Analysis Section */}
                            {taskState.status === 'SUCCESS' && taskState.result?.fitness_history && (
                                <div className="mt-4 pt-4 border-t">
+<<<<<<< HEAD
                                    <Button onClick={handleAnalyzeClick} disabled={isAnalyzing || !taskState.result?.fitness_history} variant="secondary">
                                        {isAnalyzing ? ( <> <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing... </> ) : ( "Analyze Results with Gemini" )}
                                    </Button>
+=======
+                                   <Button onClick={handleAnalyzeClick} disabled={ isAnalyzing || !taskState.result?.fitness_history || typeof formData.population_size !== 'number' || typeof formData.generations !== 'number' } variant="secondary" > {isAnalyzing ? ( <> <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing... </> ) : ( "Analyze Results with Gemini" )} </Button>
+>>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
                                    {isAnalyzing && ( <p className="text-sm text-muted-foreground mt-2"> Contacting Gemini AI, this may take a moment... </p> )}
                                    {/* ADD A PLACEHOLDER COMPONENT HERE */}
                                    {!analysisResult && !isAnalyzing && (
@@ -430,10 +488,11 @@ export default function EvolverSection() {
                                    {analysisResult && !isAnalyzing && (
                                        <Card className="mt-4 bg-muted/50">
                                             <CardHeader className="pb-2 pt-4"> <CardTitle className="text-lg">Gemini Analysis</CardTitle> </CardHeader>
-                                           <CardContent className="p-4 prose dark:prose-invert prose-sm max-w-none">
+                                            {/* Ensure prose fix is applied */}
+                                           <CardContent className="p-4 prose prose-sm max-w-none">
                                                 <ReactMarkdown>{analysisResult}</ReactMarkdown>
                                            </CardContent>
-                                       </Card>
+                                        </Card>
                                    )}
                                </div>
                            )}
@@ -443,9 +502,13 @@ export default function EvolverSection() {
                      {/* End Status Block */}
 
                      {/* Plot Area */}
+<<<<<<< HEAD
                      <div className="mt-4 h-72 border rounded bg-muted/20 flex items-center justify-center">
                          { hasPlotData ? ( <RealTimePlot maxFitnessData={plotData.maxFitness} avgFitnessData={plotData.avgFitness} diversityData={plotData.diversity} />) : ( <p className="text-muted-foreground">{taskState.taskId ? "Plot will appear here..." : "Submit task for plot"}</p> )}
                      </div>
+=======
+                     <div className="mt-4 h-72 border rounded bg-muted/20 flex items-center justify-center"> { hasPlotData ? ( <RealTimePlot maxFitnessData={plotData.maxFitness} avgFitnessData={plotData.avgFitness} diversityData={plotData.diversity}/> ) : ( <p className="text-muted-foreground">{taskState.taskId ? "Plot will appear here..." : "Submit task for plot"}</p> )} </div>
+>>>>>>> 4a52b46a (v1.6- Fixed output text colour issue and GA parameter info with better UI)
                 </CardContent>
             </Card>
         </div>
