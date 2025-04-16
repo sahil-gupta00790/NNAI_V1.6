@@ -7,6 +7,7 @@ from app.api.endpoints.advisor import initialize_rag_system, get_rag_status
 from app.api.endpoints import evolver # Evolver router
 from app.api.endpoints import advisor as advisor_router_module # Advisor router
 from app.api.endpoints.analysis import router as analysis_router # NEW: Analysis router
+from app.api.endpoints import gemini as gemini_router
 # Import settings
 from app.core.config import settings
 import logging
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 # --- FastAPI App Instantiation ---
 # Using startup/shutdown events, not lifespan here
 app = FastAPI(
-    title="Neural Nexus AI Platform",
+    title="NeuroForge",
     version="0.1.0"
 )
 
@@ -72,6 +73,8 @@ logger.info("Included Evolver router at /api/v1/evolver")
 app.include_router(analysis_router, prefix="/api/v1/analysis", tags=["Analysis"])
 logger.info("Included Analysis router at /api/v1/analysis") # Log inclusion
 # ----------------------------------
+app.include_router(gemini_router.router, prefix="/api/v1/gemini", tags=["Gemini Chat"])
+logger.info("Included Gemini Chat router at /api/v1/gemini")
 
 # --- Root Endpoint ---
 @app.get("/")

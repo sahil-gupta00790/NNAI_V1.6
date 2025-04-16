@@ -1,6 +1,25 @@
 // lib/api.ts
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
+interface GeminiHistoryItem {
+    role: 'user' | 'model';
+    parts: { text: string }[];
+}
+
+export async function postGeminiQuery(query: string, history?: GeminiHistoryItem[]) {
+    const response = await fetch(`${API_BASE_URL}/gemini/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // Send query and history in the expected format
+        body: JSON.stringify({ query, history: history || [] }), // Send empty array if no history
+    });
+    if (!response.ok) {
+         const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+         throw new Error(`Gemini Chat API Error (${response.status}): ${errorData.detail || 'Unknown error'}`);
+     }
+    return response.json(); // Expects { reply: "..." }
+}
+
 export async function postAdvisorQuery(query: string, history?: any[]) {
     const response = await fetch(`${API_BASE_URL}/advisor/chat`, {
         method: 'POST',
