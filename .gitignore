@@ -60,3 +60,5 @@ venv/Library/bin/mkl_core.1.dll
 venv/Library/bin/mkl_intel_thread.1.dll
 
 venv/Library/bin/mkl_pgi_thread.1.dll
+
+venv/
