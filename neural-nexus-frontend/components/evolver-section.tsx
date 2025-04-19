@@ -8,12 +8,12 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Progress } from '@/components/ui/progress';
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { AlertCircle, Loader2, HelpCircle } from "lucide-react";
+import { AlertCircle, Loader2, HelpCircle, XCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Switch } from '@/components/ui/switch';
-import { startEvolutionTask, analyzeGaResults } from '@/lib/api';
+import { startEvolutionTask, analyzeGaResults, terminateEvolutionTask } from '@/lib/api';
 import { useTaskPolling } from '@/lib/hooks/useTaskPolling';
 import RealTimePlot from './real-time-plot';
 import { toast } from "sonner";
@@ -42,7 +42,7 @@ const gaParameterSchema: GaParameterSchemaItem[] = [
   { name: 'selection_strategy', label: 'Selection Strategy', type: 'select', defaultValue: 'tournament', options: [ { value: 'tournament', label: 'Tournament' }, { value: 'roulette', label: 'Roulette Wheel' } ], description: 'Method for selecting parents for reproduction.'},
   { name: 'tournament_size', label: 'Tournament Size', type: 'number', defaultValue: 3, min: 2, max: 20, step: 1, condition: (formData) => formData.selection_strategy === 'tournament', description: 'Number of individuals competing in each tournament selection.' },
   { name: 'crossover_operator', label: 'Crossover Operator', type: 'select', defaultValue: 'one_point', options: [ { value: 'one_point', label: 'One Point' }, { value: 'uniform', label: 'Uniform' }, { value: 'average', label: 'Average' } ], description: 'Method for combining parent weights to create offspring.' },
-  { name: 'uniform_crossover_prob', label: 'Uniform Crossover Prob', type: 'slider', defaultValue: 0.5, min: 0, max: 1, step: 0.01, condition: (formData) => formData.crossover_operator === 'uniform', description: 'Probability of swapping genes between parents in uniform crossover.' },
+  { name: 'uniform_crossover_prob', label: 'Uni. Cross. Prob.', type: 'slider', defaultValue: 0.5, min: 0, max: 1, step: 0.01, condition: (formData) => formData.crossover_operator === 'uniform', description: 'Probability of swapping genes between parents in uniform crossover.' },
   { name: 'mutation_operator', label: 'Mutation Operator', type: 'select', defaultValue: 'gaussian', options: [ { value: 'gaussian', label: 'Gaussian Noise' }, { value: 'uniform_random', label: 'Uniform Random Replacement' } ], description: 'Method for introducing random changes to offspring weights.' },
 
   // --- Dynamic Mutation Rate Control ---
@@ -120,6 +120,9 @@ export default function EvolverSection() {
     const [evalChoice, setEvalChoice] = useState<'standard' | 'custom'>('standard');
     const [analysisResult, setAnalysisResult] = useState<string | null>(null);
     const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+    const [taskStartTime, setTaskStartTime] = useState<number | null>(null);
+    const [elapsedTime, setElapsedTime] = useState<string>("00:00:00");
+    const [isHalting, setIsHalting] = useState<boolean>(false);
     // --- End State ---
 
     // Refs (Unchanged)
@@ -165,64 +168,115 @@ export default function EvolverSection() {
     const handleTaskEvalFileChange = (e: ChangeEvent<HTMLInputElement>) => { /* ... */ setTaskEvalFile(e.target.files?.[0] ?? null); };
     const handleWeightsFileChange = (e: ChangeEvent<HTMLInputElement>) => { /* ... */ setWeightsFile(e.target.files?.[0] ?? null); };
 
-    // handleSubmit (Unchanged from previous)
+    // handleSubmit (MODIFIED - set taskStartTime on success)
     const handleSubmit = async (e: FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         if (!modelDefFile) { toast.error("Model Definition file is required."); return; }
         if (evalChoice === 'custom' && !taskEvalFile) { toast.error("Custom Evaluation Script file is required."); return; }
         if (taskState.isActive) { toast.warning("A task is already running."); return; }
-
         const finalFormDataObject = { ...formData };
-
-        if (typeof finalFormDataObject['eval_batch_size'] === 'number') { finalFormDataObject['eval_config'] = { ...(finalFormDataObject['eval_config'] || {}), batch_size: finalFormDataObject['eval_batch_size'] }; }
-        else if (finalFormDataObject['eval_config']) { delete finalFormDataObject['eval_config'].batch_size; }
+        if (typeof finalFormDataObject['eval_batch_size'] === 'number') { finalFormDataObject['eval_config'] = { ...(finalFormDataObject['eval_config'] || {}), batch_size: finalFormDataObject['eval_batch_size'] }; } else if (finalFormDataObject['eval_config']) { delete finalFormDataObject['eval_config'].batch_size; }
         delete finalFormDataObject['eval_batch_size'];
-
-        // --- Validation ---
+        // --- Validation (Unchanged) ---
         const requiredNumericFields = ['generations', 'population_size', 'elitism_count'];
-        if (!finalFormDataObject.use_dynamic_mutation_rate) { if (finalFormDataObject['mutation_rate'] === null || typeof finalFormDataObject['mutation_rate'] !== 'number') { toast.error("'Mutation Rate (Fixed)' must be valid."); return; } }
-        else {
-            const heuristic = finalFormDataObject.dynamic_mutation_heuristic;
-            if (heuristic === 'time_decay') { if (finalFormDataObject['initial_mutation_rate'] === null || finalFormDataObject['final_mutation_rate'] === null) { toast.error("Initial/Final Rate required for Time Decay."); return; } }
-            else if (heuristic === 'fitness_based') { if (finalFormDataObject['normal_fitness_mutation_rate'] === null || finalFormDataObject['stagnation_mutation_rate'] === null || finalFormDataObject['stagnation_threshold'] === null) { toast.error("Normal/Increased Rate & Threshold required for Fitness-Based."); return; } }
-            else if (heuristic === 'diversity_based') { if (finalFormDataObject['base_mutation_rate'] === null || finalFormDataObject['diversity_threshold_low'] === null || finalFormDataObject['mutation_rate_increase_factor'] === null) { toast.error("Base Rate, Threshold & Factor required for Diversity-Based."); return; } }
-        }
+        if (!finalFormDataObject.use_dynamic_mutation_rate) { if (finalFormDataObject['mutation_rate'] === null || typeof finalFormDataObject['mutation_rate'] !== 'number') { toast.error("'Mutation Rate (Fixed)' must be valid."); return; } } else { const heuristic = finalFormDataObject.dynamic_mutation_heuristic; if (heuristic === 'time_decay') { if (finalFormDataObject['initial_mutation_rate'] === null || finalFormDataObject['final_mutation_rate'] === null) { toast.error("Initial/Final Rate required for Time Decay."); return; } } else if (heuristic === 'fitness_based') { if (finalFormDataObject['normal_fitness_mutation_rate'] === null || finalFormDataObject['stagnation_mutation_rate'] === null || finalFormDataObject['stagnation_threshold'] === null) { toast.error("Normal/Increased Rate & Threshold required for Fitness-Based."); return; } } else if (heuristic === 'diversity_based') { if (finalFormDataObject['base_mutation_rate'] === null || finalFormDataObject['diversity_threshold_low'] === null || finalFormDataObject['mutation_rate_increase_factor'] === null) { toast.error("Base Rate, Threshold & Factor required for Diversity-Based."); return; } } }
         if (finalFormDataObject['mutation_strength'] === null || typeof finalFormDataObject['mutation_strength'] !== 'number' || finalFormDataObject['mutation_strength'] < 0) { toast.error("'Mutation Strength (Weights)' must be non-negative."); return; }
-        for (const field of requiredNumericFields) {
-            const schemaItem = gaParameterSchema.find(p => p.name === field);
-            if (finalFormDataObject[field] === null || typeof finalFormDataObject[field] !== 'number' || finalFormDataObject[field] < (schemaItem?.min ?? 0)) { toast.error(`'${schemaItem?.label || field}' is invalid.`); return; }
-        }
+        for (const field of requiredNumericFields) { const schemaItem = gaParameterSchema.find(p => p.name === field); if (finalFormDataObject[field] === null || typeof finalFormDataObject[field] !== 'number' || finalFormDataObject[field] < (schemaItem?.min ?? 0)) { toast.error(`'${schemaItem?.label || field}' is invalid.`); return; } }
         if (!finalFormDataObject.model_class || !finalFormDataObject.model_class.trim()) { toast.error("Internal Error: Model class missing."); return; }
         // --- End Validation ---
-
         const configJsonString = JSON.stringify(finalFormDataObject, null, 2);
         console.log("Frontend: Sending final config JSON:", configJsonString);
-
         setIsSubmitting(true); resetTaskState(); setAnalysisResult(null); setIsAnalyzing(false);
+        setTaskStartTime(null); setElapsedTime("00:00:00"); // Reset timer state on new submission
         toast("Submitting evolution task...");
-
-        const apiFormData = new FormData();
-        apiFormData.append('model_definition', modelDefFile);
-        apiFormData.append('use_standard_eval', String(evalChoice === 'standard'));
-        if (evalChoice === 'custom' && taskEvalFile) apiFormData.append('task_evaluation', taskEvalFile);
-        if (weightsFile) apiFormData.append('initial_weights', weightsFile);
-        apiFormData.append('config_json', configJsonString);
-
+        const apiFormData = new FormData(); apiFormData.append('model_definition', modelDefFile); apiFormData.append('use_standard_eval', String(evalChoice === 'standard')); if (evalChoice === 'custom' && taskEvalFile) apiFormData.append('task_evaluation', taskEvalFile); if (weightsFile) apiFormData.append('initial_weights', weightsFile); apiFormData.append('config_json', configJsonString);
         try {
             const response = await startEvolutionTask(apiFormData);
-            startTask(response.task_id);
+            startTask(response.task_id); // Hook handles isActive state
+            setTaskStartTime(Date.now()); // <<<<<<< NEW: Record start time on successful submission
             toast.success(`Task ${response.task_id} started.`);
-             if(modelDefRef.current) modelDefRef.current.value = "";
-             if(taskEvalRef.current) taskEvalRef.current.value = "";
-             if(weightsRef.current) weightsRef.current.value = "";
-             setModelDefFile(null); setTaskEvalFile(null); setWeightsFile(null);
-        } catch (error: any) {
-            console.error("Error starting evolution task:", error);
-            toast.error(`Failed to start task: ${error.message || 'Unknown error'}`);
-            resetTaskState();
-        } finally { setIsSubmitting(false); }
+            if (modelDefRef.current) modelDefRef.current.value = ""; if (taskEvalRef.current) taskEvalRef.current.value = ""; if (weightsRef.current) weightsRef.current.value = "";
+            setModelDefFile(null); setTaskEvalFile(null); setWeightsFile(null);
+        }
+        catch (error: any) { console.error("Error starting evolution task:", error); toast.error(`Failed to start task: ${error.message || 'Unknown error'}`); resetTaskState(); setTaskStartTime(null); /* Clear start time on error */ }
+        finally { setIsSubmitting(false); }
     };
     // --- End handleSubmit ---
+
+    // --- NEW: Timer Logic ---
+    useEffect(() => {
+        let intervalId: NodeJS.Timeout | null = null;
+
+        if (taskState.isActive && taskStartTime) {
+            intervalId = setInterval(() => {
+                const now = Date.now();
+                const elapsedMilliseconds = now - taskStartTime;
+
+                const totalSeconds = Math.floor(elapsedMilliseconds / 1000);
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const seconds = totalSeconds % 60;
+
+                const formattedTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                setElapsedTime(formattedTime);
+            }, 1000); // Update every second
+        } else {
+            // If task becomes inactive or startTime is cleared, ensure timer stops
+            // and potentially reset display, handled by the effect below
+        }
+
+        // Cleanup function to clear interval on unmount or when dependencies change
+        return () => {
+            if (intervalId) {
+                clearInterval(intervalId);
+            }
+        };
+    }, [taskState.isActive, taskStartTime]); // Rerun effect if task active state or start time changes
+
+    // Effect to manage start time based on task activity
+    useEffect(() => {
+        if (taskState.isActive && !taskStartTime) {
+            // If component loads/re-renders and finds an active task but no start time,
+            // set a start time. Note: This might not be the *actual* start time
+            // if the task started long before this component mounted.
+            // A more accurate approach would involve storing start time with task state.
+            console.warn("Task is active but start time not set. Setting start time now (may be inaccurate).");
+            setTaskStartTime(Date.now());
+        } else if (!taskState.isActive && taskStartTime) {
+            // Task finished or was halted, clear start time
+            setTaskStartTime(null);
+            // Keep the final elapsed time displayed, don't reset here
+        }
+        // No else needed - if active and startTime exists, timer effect handles it.
+        // If inactive and no startTime, do nothing.
+    }, [taskState.isActive, taskStartTime]);
+    // --- End Timer Logic ---
+
+
+    // --- NEW: Halt Task Handler ---
+    const handleHaltTask = async () => {
+        if (!taskState.taskId || isHalting || !taskState.isActive) {
+            return; // Don't halt if no task ID, already halting, or not active
+        }
+        setIsHalting(true);
+        toast.info(`Requesting termination for task ${taskState.taskId}...`);
+        try {
+            // Assume terminateEvolutionTask(taskId) exists in lib/api.ts
+            await terminateEvolutionTask(taskState.taskId);
+            toast.success(`Termination request sent for task ${taskState.taskId}.`);
+            // Reset state immediately for responsiveness. Polling will confirm final status.
+            resetTaskState();
+            setTaskStartTime(null); // Stop timer
+            // setElapsedTime("00:00:00"); // Optionally reset timer display immediately
+        } catch (error: any) {
+            console.error("Error terminating task:", error);
+            toast.error(`Failed to terminate task: ${error.message || 'Unknown error'}`);
+            // Keep task state as is, polling might update it later
+        } finally {
+            setIsHalting(false);
+        }
+    };
+    // --- End Halt Task Handler ---
 
     // handleAnalyzeClick (Unchanged)
     const handleAnalyzeClick = async () => {
@@ -318,35 +372,84 @@ export default function EvolverSection() {
                 </CardContent>
             </Card>
 
-            {/* Status & Plot Card */}
+            {/* Status & Plot Card (MODIFIED) */}
             <Card>
                  <CardHeader> <CardTitle>Task Status & Results</CardTitle> <CardDescription>Monitor the evolution progress in real-time.</CardDescription> </CardHeader>
                 <CardContent className="space-y-4">
-                     {taskState.taskId ? (
+                     {/* Status Display Block */}
+                    {taskState.taskId ? (
                          <div key={taskState.taskId} className="space-y-2" >
-                           <p>Task ID: <span className="font-mono text-sm bg-muted px-1 rounded">{taskState.taskId}</span></p>
-                           <p>Status: <span className={`font-semibold ${taskState.status === 'SUCCESS' ? 'text-green-600' : taskState.status === 'FAILURE' ? 'text-red-600' : ''}`}>{taskState.status || 'N/A'}</span></p>
-                           {(taskState.status === 'PROGRESS' || taskState.status === 'STARTED') && typeof taskState.progress === 'number' && ( <div className="pt-1"> <Progress value={taskState.progress * 100} className="w-full" /> <p className="text-sm text-muted-foreground pt-1">{Math.round(taskState.progress * 100)}% complete</p> </div> )}
+                            {/* --- Top Row: Status Text & Halt Button --- */}
+                            <div className="flex justify-between items-start">
+                               <div> {/* Status Text container */}
+                                   <p>Task ID: <span className="font-mono text-sm bg-muted px-1 rounded inline-block align-bottom max-w-[200px] sm:max-w-[250px] md:max-w-[180px] lg:max-w-[250px] xl:max-w-[300px] whitespace-nowrap overflow-hidden text-ellipsis">{taskState.taskId}</span></p>
+                                   <p>Status: <span className={`font-semibold ${taskState.status === 'SUCCESS' ? 'text-green-600' : taskState.status === 'FAILURE' ? 'text-red-600' : ''}`}>{taskState.status || 'N/A'}</span></p>
+                                   {/* Active Timer */}
+                                   {taskState.isActive && taskStartTime && (
+                                       <p className="text-sm text-muted-foreground pt-1">Runtime: {elapsedTime}</p>
+                                   )}
+                               </div>
+                               {/* Halt Button */}
+                               {taskState.isActive && (
+                                   <Button variant="destructive" size="sm" onClick={handleHaltTask} disabled={isHalting} className="ml-4 flex-shrink-0" >
+                                       {isHalting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <XCircle className="mr-2 h-4 w-4" />}
+                                       {isHalting ? 'Halting...' : 'Halt Task'}
+                                   </Button>
+                               )}
+                           </div>
+                           {/* --- End Top Row --- */}
+
+                            {/* Progress Bar */}
+                           {(taskState.status === 'PROGRESS' || taskState.status === 'STARTED') && typeof taskState.progress === 'number' && (
+                               <div className="pt-1">
+                                   <Progress value={taskState.progress * 100} className="w-full" />
+                                   <p className="text-sm text-muted-foreground pt-1">{Math.round(taskState.progress * 100)}% complete</p>
+                               </div>
+                            )}
+
+                            {/* Message/Error and Final Runtime */}
                            {taskState.message && <p className="text-sm text-muted-foreground">{taskState.message}</p>}
                            {taskState.error && ( <Alert variant="destructive" className="mt-2"> <AlertCircle className="h-4 w-4" /> <AlertTitle>Task Error</AlertTitle> <AlertDescription>{taskState.error}</AlertDescription> </Alert> )}
-                           {taskState.status === 'SUCCESS' && downloadLink !== undefined && (
-                                <Button variant="outline" size="sm" asChild className="mt-2">
-                                    {/* Wrap the anchor tag in a span to guarantee a single child element */}
-                                    <span>
+
+                           {/* --- NEW: Display Final Runtime --- */}
+                           {(taskState.status === 'SUCCESS' || taskState.status === 'FAILURE' || taskState.status === 'REVOKED') && (
+                               <p className="text-sm text-muted-foreground pt-1">
+                                   Total Runtime: {elapsedTime}
+                               </p>
+                           )}
+                           {/* --- End Final Runtime --- */}
+
+
+                           {/* Result Buttons & Analysis */}
+                           <div className="flex flex-wrap gap-2 mt-2">
+                                {/* Download Button (Unchanged as requested) */}
+                                {taskState.status === 'SUCCESS' && downloadLink !== undefined && (
+                                    <Button variant="outline" size="sm" asChild className="mt-2">
                                         <a href={downloadLink} download>Download Final Model (.pth)</a>
-                                    </span>
-                                </Button>
-                           )}
-                            {taskState.status === 'SUCCESS' && taskState.result?.fitness_history && (
-                               <div className="mt-4 pt-4 border-t">
-                                   <Button onClick={handleAnalyzeClick} disabled={ isAnalyzing || !taskState.result?.fitness_history || typeof formData.population_size !== 'number' || typeof formData.generations !== 'number' } variant="secondary" > {isAnalyzing ? ( <> <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing... </> ) : ( "Analyze Results with Gemini" )} </Button>
-                                   {isAnalyzing && ( <p className="text-sm text-muted-foreground mt-2"> Contacting Gemini AI, this may take a moment... </p> )}
-                                   {!analysisResult && !isAnalyzing && ( <p className="text-sm text-muted-foreground mt-2">Click "Analyze Results" to generate insights.</p> )}
-                                   {analysisResult && !isAnalyzing && ( <Card className="mt-4 bg-muted/50"> <CardHeader className="pb-2 pt-4"> <CardTitle className="text-lg">Gemini Analysis</CardTitle> </CardHeader> <CardContent className="p-4 prose prose-sm max-w-none"> <ReactMarkdown>{analysisResult}</ReactMarkdown> </CardContent> </Card> )}
-                               </div>
-                           )}
+                                    </Button>
+                                )}
+                                {/* Analyze Button (Added mt-2 for alignment) */}
+                                {taskState.status === 'SUCCESS' && taskState.result?.fitness_history && (
+                                    <Button
+                                        onClick={handleAnalyzeClick}
+                                        disabled={ isAnalyzing || !taskState.result?.fitness_history }
+                                        variant="secondary"
+                                        size="sm"
+                                        className="mt-2" // <<< FIX: Added mt-2 here
+                                    >
+                                        {isAnalyzing ? ( <> <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Analyzing... </> ) : ( "Analyze Results" )}
+                                    </Button>
+                                )}
+                           </div>
+                            {/* Rest of the analysis display elements remain the same */}
+                            {isAnalyzing && ( <p className="text-sm text-muted-foreground mt-2"> Contacting Gemini AI, this may take a moment... </p> )}
+                            {taskState.status === 'SUCCESS' && !analysisResult && !isAnalyzing && taskState.result?.fitness_history && ( <p className="text-sm text-muted-foreground mt-2">Click "Analyze Results" to generate insights.</p> )}
+                            {analysisResult && !isAnalyzing && ( <Card className="mt-4 bg-muted/50"> <CardHeader className="pb-2 pt-4"> <CardTitle className="text-lg">Gemini Analysis</CardTitle> </CardHeader> <CardContent className="p-4 prose prose-sm max-w-none"> <ReactMarkdown>{analysisResult}</ReactMarkdown> </CardContent> </Card> )}
+
                          </div>
                     ) : ( <p className="text-muted-foreground">Submit a task to see status and results.</p> )}
+
+                     {/* Plot Area (Unchanged) */}
                      <div className="mt-4 h-72 border rounded bg-muted/20 flex items-center justify-center"> { hasPlotData ? ( <RealTimePlot maxFitnessData={plotData.maxFitness} avgFitnessData={plotData.avgFitness} diversityData={plotData.diversity}/> ) : ( <p className="text-muted-foreground">{taskState.taskId ? "Plot will appear here..." : "Submit task for plot"}</p> )} </div>
                 </CardContent>
             </Card>

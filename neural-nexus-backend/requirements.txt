@@ -32,3 +32,6 @@ typing-extensions>=4.10.0 # Set a reasonable minimum, allow newer
 pypdf
 
 google-generativeai
+
+aioredis
+celery

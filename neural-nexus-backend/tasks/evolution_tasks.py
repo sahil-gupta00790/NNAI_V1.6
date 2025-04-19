@@ -9,6 +9,8 @@ import numpy as np
 import torch
 import logging
 from typing import List, Dict, Any, Tuple
+import redis
+from celery.exceptions import SoftTimeLimitExceeded
 
 # Use config settings imported via Celery context or directly
 from app.core.config import settings
@@ -78,13 +80,34 @@ class EvolutionTaskWithRetry(Task):
 
 @celery_app.task(bind=True, base=EvolutionTaskWithRetry)
 def run_evolution_task(self: Task, model_definition_path: str, task_evaluation_path: str | None, use_standard_eval: bool, initial_weights_path: str | None, config: Dict[str, Any]):
-    """ Celery task for evolution with dynamic rates and hyperparameter optimization. """
+    """ Celery task for evolution with dynamic rates, hyperparameter optimization, and cooperative halt check. """
     task_id = None
+    redis_client = None # Initialize redis client variable
+    halt_key = None
+
     try:
          task_id = self.request.id
+         if not task_id: logger.error("CRITICAL: Failed to get task_id"); raise ValueError("Task ID missing")
+         # Construct key early, now that halt_key exists in this scope
+         halt_key = f"task:halt:{task_id}"
          logger.info(f"[Task {task_id}] Starting evolution...")
          config_preview = {k: v for i, (k, v) in enumerate(config.items()) if i < 15}
          logger.info(f"[Task {task_id}] Received config preview: {config_preview}")
+
+         # --- NEW: Initialize Redis Client ---
+         try:
+             redis_url = str(settings.REDIS_URL)
+             # Use decode_responses=True for easier handling of keys/values as strings
+             redis_client = redis.from_url(redis_url, decode_responses=True)
+             # Test connection (optional but good practice)
+             redis_client.ping()
+             logger.info(f"[Task {task_id}] Successfully connected to Redis at {redis_url}")
+         except Exception as redis_err:
+             # Log warning but allow task to continue if Redis isn't essential for core logic (only for halting)
+             logger.warning(f"[Task {task_id}] Failed to connect to Redis for halt check: {redis_err}. Halt feature disabled for this run.", exc_info=False)
+             redis_client = None # Ensure client is None if connection failed
+         # --- End Redis Init ---
+
     except Exception as entry_err:
          logger.critical(f"CRITICAL ERROR AT TASK ENTRY: {entry_err}", exc_info=True)
          raise
@@ -265,6 +288,45 @@ def run_evolution_task(self: Task, model_definition_path: str, task_evaluation_p
             gen_num = gen + 1
             logger.info(f"[Task {task_id}] --- Generation {gen_num}/{generations} ---")
             gen_start_time = time.time()
+
+            # --- Check for Halt Request ---
+            if redis_client and halt_key: # Check if client is valid and key was constructed
+                try:
+                    # --- ADDED Debug Logs ---
+                    logger.debug(f"[Task {task_id}] Checking Redis for halt key: {halt_key}")
+                    exists = redis_client.exists(halt_key)
+                    logger.debug(f"[Task {task_id}] Redis exists result for {halt_key}: {exists}")
+                    # --- End Debug Logs ---
+                    if exists: # exists returns number of keys found (1 if found)
+                        logger.warning(f"[Task {task_id}] Halt flag detected. Stopping evolution.")
+                        try:
+                            deleted_count = redis_client.delete(halt_key)
+                            logger.info(f"[Task {task_id}] Deleted halt key {halt_key} (Count: {deleted_count})")
+                        except Exception as del_err:
+                            logger.error(f"[Task {task_id}] Failed to delete halt flag {halt_key}: {del_err}")
+
+                        halt_message = "Task halted by user request."
+                        current_progress = (gen / generations) if generations > 0 else 0
+                        best_hparams_halt = {}
+                        if best_chromosome_overall is not None and num_hyperparams > 0:
+                             try: best_hparams_halt = decode_hyperparameters(best_chromosome_overall[:num_hyperparams], hyperparam_keys, evolvable_hyperparams_config)
+                             except Exception as decode_err: logger.error(f"Error decoding best hparams during halt: {decode_err}")
+                        halt_meta = {
+                            'message': halt_message, 'progress': current_progress,
+                            'fitness_history': fitness_history_overall,
+                            'avg_fitness_history': avg_fitness_history_overall,
+                            'diversity_history': diversity_history_overall,
+                            'best_hyperparameters': best_hparams_halt
+                        }
+                        self.update_state(state='HALTED', meta=halt_meta)
+                        logger.info(f"[Task {task_id}] Task state set to HALTED.")
+                        return {'message': halt_message, 'status': 'HALTED_BY_USER'}
+                except redis.exceptions.ConnectionError as redis_conn_err:
+                     logger.error(f"[Task {task_id}] Redis connection error during halt check: {redis_conn_err}. Halt check disabled.", exc_info=False)
+                     redis_client = None # Disable further checks
+                except Exception as check_err:
+                     logger.error(f"[Task {task_id}] Unexpected error checking halt flag: {check_err}. Continuing run.", exc_info=True)
+            # --- End Halt Check ---
 
             # 1. Evaluate Population
             try:
@@ -484,13 +546,33 @@ def run_evolution_task(self: Task, model_definition_path: str, task_evaluation_p
         self.update_state(state='SUCCESS', meta=final_result)
         return final_result
 
+    # --- Exception Handling (Added SoftTimeLimitExceeded) ---
+    except SoftTimeLimitExceeded: # Catch Celery's exception if SIGUSR1 was used (alternative)
+        logger.warning(f"[Task {task_id}] Soft time limit exceeded. Task halting.")
+        # Update state to HALTED or a custom state
+        halt_message = "Task halted due to time limit or signal."
+        halt_meta = { 'message': halt_message, 'fitness_history': fitness_history_overall, 'avg_fitness_history': avg_fitness_history_overall, 'diversity_history': diversity_history_overall, 'best_hyperparameters': decode_hyperparameters(best_chromosome_overall[:num_hyperparams], hyperparam_keys, evolvable_hyperparams_config) if num_hyperparams > 0 else {} }
+        self.update_state(state='HALTED', meta=halt_meta)
+        # Return a result
+        return {'message': halt_message, 'status': 'HALTED_BY_SIGNAL'}
     except Exception as e:
-        error_message = f'Evolution task failed during run: {str(e)}'
+        error_message = f'Evolution task failed: {str(e)}'
         logger.error(f"[Task {task_id}] {error_message}", exc_info=True)
-        best_hyperparams_fail = {}
+        # ... (existing failure handling remains the same) ...
+        best_hyperparams_fail = {};
         if num_hyperparams > 0 and len(best_chromosome_overall) >= num_hyperparams:
             try: best_hyperparams_fail = decode_hyperparameters(best_chromosome_overall[:num_hyperparams], hyperparam_keys, evolvable_hyperparams_config)
-            except Exception as decode_err: logger.error(f"Error decoding best hyperparams on failure: {decode_err}")
+            except Exception as decode_err: logger.error(f"Error decoding best hparams on failure: {decode_err}")
         meta_fail = { 'message': error_message, 'error': str(e), 'best_hyperparameters': best_hyperparams_fail, 'fitness_history': fitness_history_overall, 'avg_fitness_history': avg_fitness_history_overall, 'diversity_history': diversity_history_overall }
         self.update_state(state='FAILURE', meta=meta_fail)
         raise
+
+    finally:
+        # --- NEW: Close Redis connection ---
+        if redis_client:
+            try:
+                redis_client.close()
+                logger.info(f"[Task {task_id}] Closed Redis connection.")
+            except Exception as close_err:
+                logger.error(f"[Task {task_id}] Error closing Redis connection: {close_err}")
+        # --- End Redis Close ---
