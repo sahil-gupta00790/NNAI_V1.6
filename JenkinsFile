@@ -1,0 +1,86 @@
+pipeline {
+   
+    agent any
+
+    environment {
+        AWS_REGION = 'us-east-1' // Change to your desired AWS region
+        AWS_CREDENTIALS_ID = '1'
+        TF_DIR = 'terraform'
+    }
+
+    stages {
+        stage('Checkout Source Code') {
+            steps {
+                // Fetches the code using the Git SCM configuration from the Jenkins job setup
+                // This uses the GitHub PAT credential configured in the job [3]
+                echo "Checking out Terraform code from private repository..."
+                checkout scm
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                // Initialize Terraform in the specified directory
+                // This downloads necessary providers
+                echo "Running Terraform Init in ${env.TF_DIR}..."
+                dir(env.TF_DIR) {
+                    // Use withCredentials to securely inject AWS keys as environment variables
+                    // Terraform automatically picks up AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY [4]
+                    withCredentials([aws(credentialsId: env.AWS_CREDENTIALS_ID, region: env.AWS_REGION)]) {
+                        sh 'terraform init -input=false'
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                // Generate an execution plan
+                echo "Running Terraform Plan in ${env.TF_DIR}..."
+                dir(env.TF_DIR) {
+                    withCredentials([aws(credentialsId: env.AWS_CREDENTIALS_ID, region: env.AWS_REGION)]) {
+                        // Save the plan to a file for review or explicit application
+                        sh 'terraform plan -out=tfplan -input=false'
+                    }
+                }
+            }
+        }
+
+        stage('Confirm Apply') {
+            // Optional but recommended: Manual confirmation before applying changes
+            // Remove this stage for fully automated pipelines (e.g., in specific branches)
+            steps {
+                 input "Apply Terraform plan to create/update ECS Cluster?"
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                // Apply the Terraform plan to create/update the infrastructure
+                echo "Running Terraform Apply in ${env.TF_DIR}..."
+                dir(env.TF_DIR) {
+                    withCredentials([aws(credentialsId: env.AWS_CREDENTIALS_ID, region: env.AWS_REGION)]) {
+                        // Apply the saved plan file
+                        sh 'terraform apply -auto-approve tfplan'
+                        // OR apply directly without a plan file (less safe):
+                        // sh 'terraform apply -auto-approve -input=false'
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Clean up workspace
+            echo 'Pipeline finished. Cleaning workspace.'
+            cleanWs()
+            // Optionally, clean up the plan file if you want
+            // dir(env.TF_DIR) {
+            //     sh 'rm -f tfplan'
+            // }
+        }
+        // Add success/failure notifications if needed
+    }
+}
+
