@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         AWS_REGION = 'us-east-1'
-        AWS_CREDENTIALS_ID = '1'
+        AWS_CREDENTIALS_ID = 'aws-cred'
         TF_DIR = 'terraform'
     }
 
