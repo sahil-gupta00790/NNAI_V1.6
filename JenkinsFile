@@ -1,9 +1,8 @@
 pipeline {
-   
     agent any
 
     environment {
-        AWS_REGION = 'us-east-1' // Change to your desired AWS region
+        AWS_REGION = 'us-east-1'
         AWS_CREDENTIALS_ID = '1'
         TF_DIR = 'terraform'
     }
@@ -16,37 +15,23 @@ pipeline {
             }
         }
 
-        stage('Terraform Init') {
+        stage('Terraform Actions') {
             steps {
-                echo "Running Terraform Init in ${env.TF_DIR}..."
-                dir(env.TF_DIR) {
-                    withCredentials([[
-                        $class: 'AmazonWebServicesCredentialsBinding', 
-                        credentialsId: env.AWS_CREDENTIALS_ID,
-                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                    ]]) {
-                        // Set the region via environment variable
-                        withEnv(["AWS_REGION=${env.AWS_REGION}"]) {
-                            sh 'terraform init -input=false'
-                        }
-                    }
-                }
-            }
-        }
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: env.AWS_CREDENTIALS_ID,
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    withEnv(["AWS_REGION=${env.AWS_REGION}"]) {
+                        dir(env.TF_DIR) {
+                            script {
+                                echo "Running Terraform Init..."
+                                sh 'terraform init -input=false'
 
-        stage('Terraform Plan') {
-            steps {
-                echo "Running Terraform Plan in ${env.TF_DIR}..."
-                dir(env.TF_DIR) {
-                    withCredentials([[
-                        $class: 'AmazonWebServicesCredentialsBinding', 
-                        credentialsId: env.AWS_CREDENTIALS_ID,
-                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                    ]]) {
-                        withEnv(["AWS_REGION=${env.AWS_REGION}"]) {
-                            sh 'terraform plan -out=tfplan -input=false'
+                                echo "Running Terraform Plan..."
+                                sh 'terraform plan -out=tfplan -input=false'
+                            }
                         }
                     }
                 }
@@ -61,15 +46,15 @@ pipeline {
 
         stage('Terraform Apply') {
             steps {
-                echo "Running Terraform Apply in ${env.TF_DIR}..."
-                dir(env.TF_DIR) {
-                    withCredentials([[
-                        $class: 'AmazonWebServicesCredentialsBinding', 
-                        credentialsId: env.AWS_CREDENTIALS_ID,
-                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                    ]]) {
-                        withEnv(["AWS_REGION=${env.AWS_REGION}"]) {
+                withCredentials([[
+                    $class: 'AmazonWebServicesCredentialsBinding',
+                    credentialsId: env.AWS_CREDENTIALS_ID,
+                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                ]]) {
+                    withEnv(["AWS_REGION=${env.AWS_REGION}"]) {
+                        dir(env.TF_DIR) {
+                            echo "Running Terraform Apply..."
                             sh 'terraform apply -auto-approve tfplan'
                         }
                     }
