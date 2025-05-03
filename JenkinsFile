@@ -9,7 +9,7 @@ pipeline {
 
         TF_VAR_frontend_image = 'sohano/primary-frontend:latest'
         TF_VAR_backend_image  = 'sohano/primary-backend:latest'
-        TF_VAR_redis_image    = 'redis:alpine' // Using standard redis image
+        TF_VAR_redis_image    = 'redis:alpine'
 
 
     stages {
@@ -42,7 +42,6 @@ pipeline {
                 withCredentials([aws(credentialsId: env.AWS_CREDENTIALS_ID, region: env.AWS_REGION)]) {
                     dir(env.TF_DIR) {
                         echo "Running Terraform Apply..."
-                        // Apply the plan created in the previous stage
                         sh 'terraform apply -auto-approve tfplan'
                     }
                 }
