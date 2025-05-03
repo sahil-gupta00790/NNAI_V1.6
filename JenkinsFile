@@ -24,10 +24,10 @@ pipeline {
                     dir(env.TF_DIR) {
                         script {
                             echo "Running Terraform Init..."
-                            bash 'terraform init -input=false'
+                            bat 'terraform init -input=false'
 
                             echo "Running Terraform Plan..."
-                            bash 'terraform plan -out=tfplan -input=false'
+                            bat 'terraform plan -out=tfplan -input=false'
                         }
                     }
                 }
@@ -39,7 +39,7 @@ pipeline {
                 withCredentials([aws(credentialsId: env.AWS_CREDENTIALS_ID, region: env.AWS_REGION)]) {
                     dir(env.TF_DIR) {
                         echo "Running Terraform Apply..."
-                        bash 'terraform apply -auto-approve tfplan'
+                        bat 'terraform apply -auto-approve tfplan'
                     }
                 }
             }
