@@ -74,10 +74,23 @@ variable "redis_image" {
   default     = "redis:alpine" # Default if TF_VAR_redis_image not set
 }
 
-# Container Ports
-variable "frontend_port" { description = "Port for the frontend container"; type = number; default = 3000 }
-variable "backend_port" { description = "Port for the backend container"; type = number; default = 8000 }
-variable "redis_port" { description = "Port for the redis container"; type = number; default = 6379 }
+variable "frontend_port" {
+  description = "Port for the frontend container"
+  type        = number
+  default     = 3000
+}
+
+variable "backend_port" {
+  description = "Port for the backend container"
+  type        = number
+  default     = 8000
+}
+
+variable "redis_port" {
+  description = "Port for the redis container"
+  type        = number
+  default     = 6379
+}
 
 
 variable "desired_task_count" {
