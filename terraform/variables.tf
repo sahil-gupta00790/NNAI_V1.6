@@ -1,70 +1,84 @@
+# --- General AWS Variables ---
 variable "aws_region" {
   description = "The AWS region to deploy resources in."
   type        = string
-  default     = "us-east-1" # Choose your desired region
+  default     = "us-east-1" # Or your preferred region
 }
 
 variable "project_name" {
   description = "A name prefix for resources to ensure uniqueness and grouping."
   type        = string
-  default     = "my-ecs-app"
+  default     = "neural-nexus"
 }
 
+# --- Networking Variables ---
 variable "vpc_cidr" {
-  description = "The CIDR block for the VPC."
+  description = "The primary CIDR block for the VPC."
   type        = string
   default     = "10.0.0.0/16"
 }
 
-variable "public_subnet_cidrs" {
-  description = "List of CIDR blocks for public subnets (one per AZ)."
+variable "availability_zones" {
+  description = "List of Availability Zones to use. Leave empty to use defaults for the region."
   type        = list(string)
-  default     = ["10.0.1.0/24", "10.0.2.0/24"]
+  default     = [] # Example: ["us-east-1a", "us-east-1b"]
+}
+
+variable "num_azs" {
+  description = "Number of Availability Zones to use if 'availability_zones' is empty."
+  type        = number
+  default     = 2 # Use at least 2 for high availability
+}
+
+variable "public_subnet_cidrs" {
+  description = "List of CIDR blocks for public subnets. Must match the number of AZs."
+  type        = list(string)
+  default     = ["10.0.1.0/24", "10.0.2.0/24"] # Example for 2 AZs
 }
 
 variable "private_subnet_cidrs" {
-  description = "List of CIDR blocks for private subnets (one per AZ)."
+  description = "List of CIDR blocks for private subnets. Must match the number of AZs."
   type        = list(string)
-  default     = ["10.0.101.0/24", "10.0.102.0/24"]
+  default     = ["10.0.101.0/24", "10.0.102.0/24"] # Example for 2 AZs
 }
 
-variable "availability_zones" {
-  description = "List of Availability Zones to use (must match the number of subnets)."
-  type        = list(string)
-  # Let Terraform determine AZs dynamically based on the chosen region
-  default = []
-}
-
-variable "ecs_cluster_name" {
-  description = "Name for the ECS Cluster."
-  type        = string
-  default     = "main-cluster"
-}
-
-# --- Example Task Definition Variables (Modify for your app) ---
+# --- ECS Task Definition Variables ---
 variable "ecs_task_family" {
   description = "Family name for the ECS Task Definition."
   type        = string
-  default     = "nginx-example-task"
+  default     = "neural-nexus-app"
 }
 
 variable "ecs_service_name" {
   description = "Name for the ECS Service."
   type        = string
-  default     = "nginx-example-service"
+  default     = "neural-nexus-service"
 }
 
-variable "container_image" {
-  description = "Docker image to run in the container."
+# Container Images (Will be overridden by Jenkins TF_VAR_* environment variables)
+variable "frontend_image" {
+  description = "Docker image for the frontend container."
   type        = string
-  default     = "nginx:latest" # Replace with your image from ECR later
+  default     = "sohano/primary-frontend:latest" # Default if TF_VAR_frontend_image not set
 }
 
-variable "container_port" {
-  description = "Port the container listens on."
-  type        = number
-  default     = 3000
+variable "backend_image" {
+  description = "Docker image for the backend container."
+  type        = string
+  default     = "sohano/primary-backend:latest" # Default if TF_VAR_backend_image not set
 }
+
+variable "redis_image" {
+  description = "Docker image for the redis container."
+  type        = string
+  default     = "redis:alpine" # Default if TF_VAR_redis_image not set
+}
+
+# Container Ports
+variable "frontend_port" { description = "Port for the frontend container"; type = number; default = 3000 }
+variable "backend_port" { description = "Port for the backend container"; type = number; default = 8000 }
+variable "redis_port" { description = "Port for the redis container"; type = number; default = 6379 }
+
 
 variable "desired_task_count" {
   description = "Number of tasks to run for the service."
@@ -72,14 +86,25 @@ variable "desired_task_count" {
   default     = 1
 }
 
+# Adjust Task CPU/Memory for 3 containers
 variable "task_cpu" {
-  description = "Fargate task CPU units (e.g., 256 = 0.25 vCPU)."
+  description = "Fargate task CPU units (e.g., 1024 = 1 vCPU)."
   type        = number
-  default     = 256
+  default     = 1024 # 1 vCPU
 }
 
 variable "task_memory" {
-  description = "Fargate task memory MiB (e.g., 512 = 0.5 GB)."
+  description = "Fargate task memory MiB (e.g., 2048 = 2 GB)."
   type        = number
-  default     = 512
+  default     = 2048 # 2 GB
+}
+
+# --- Tagging Variables ---
+variable "common_tags" {
+  description = "A map of common tags to apply to all resources."
+  type        = map(string)
+  default = {
+    Project   = "NeuralNexus"
+    ManagedBy = "Terraform"
+  }
 }

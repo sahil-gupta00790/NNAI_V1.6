@@ -2,71 +2,68 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'us-east-1'
-        AWS_CREDENTIALS_ID = 'aws-cred'
-        TF_DIR = 'terraform'
-    }
+        AWS_REGION           = 'us-east-1' 
+        AWS_CREDENTIALS_ID   = 'aws-cred'
+        TF_DIR               = 'terraform'
+
+
+        TF_VAR_frontend_image = 'sohano/primary-frontend:latest'
+        TF_VAR_backend_image  = 'sohano/primary-backend:latest'
+        TF_VAR_redis_image    = 'redis:alpine' // Using standard redis image
+
 
     stages {
-        stage('Checkout Source Code') {
+        stage('Checkout') {
             steps {
-                echo "Checking out Terraform code from private repository..."
+                echo "Checking out source code..."
+               
                 checkout scm
             }
         }
 
-        stage('Terraform Actions') {
+        stage('Terraform Init & Plan') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: env.AWS_CREDENTIALS_ID,
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    withEnv(["AWS_REGION=${env.AWS_REGION}"]) {
-                        dir(env.TF_DIR) {
-                            script {
-                                echo "Running Terraform Init..."
-                                bat 'terraform init -input=false'
+                withCredentials([aws(credentialsId: env.AWS_CREDENTIALS_ID, region: env.AWS_REGION)]) {
+                    dir(env.TF_DIR) {
+                        script {
+                            echo "Running Terraform Init..."
+                            sh 'terraform init -input=false'
 
-                                echo "Running Terraform Plan..."
-                                bat 'terraform plan -out=tfplan -input=false'
-                            }
+                            echo "Running Terraform Plan..."
+                            sh 'terraform plan -out=tfplan -input=false'
                         }
                     }
                 }
-            }
-        }
-
-        stage('Confirm Apply') {
-            steps {
-                input "Apply Terraform plan to create/update ECS Cluster?"
             }
         }
 
         stage('Terraform Apply') {
             steps {
-                withCredentials([[
-                    $class: 'AmazonWebServicesCredentialsBinding',
-                    credentialsId: env.AWS_CREDENTIALS_ID,
-                    accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                    secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                ]]) {
-                    withEnv(["AWS_REGION=${env.AWS_REGION}"]) {
-                        dir(env.TF_DIR) {
-                            echo "Running Terraform Apply..."
-                            bat 'terraform apply -auto-approve tfplan'
-                        }
+                withCredentials([aws(credentialsId: env.AWS_CREDENTIALS_ID, region: env.AWS_REGION)]) {
+                    dir(env.TF_DIR) {
+                        echo "Running Terraform Apply..."
+                        // Apply the plan created in the previous stage
+                        sh 'terraform apply -auto-approve tfplan'
                     }
                 }
             }
-        }
+        }}
     }
 
     post {
         always {
-            echo 'Pipeline finished. Cleaning workspace.'
-            cleanWs()
+            echo 'Pipeline finished.'
+            dir(env.TF_DIR) {
+                
+            }
+        }
+        success {
+            echo 'Pipeline succeeded!'
+            
+        }
+        failure {
+            echo 'Pipeline failed!'
+            
         }
     }
 }
