@@ -62,7 +62,7 @@ resource "aws_subnet" "private" {
 
 resource "aws_eip" "nat" {
   count = local.num_azs # Create one EIP per AZ for NAT Gateway
-  vpc   = true          # EIP associated with a VPC
+  domain = "vpc" 
 
   tags = merge(local.tags, {
     Name = "${var.project_name}-nat-eip-${count.index + 1}"
