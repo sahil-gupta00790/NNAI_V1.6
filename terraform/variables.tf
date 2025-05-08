@@ -103,13 +103,13 @@ variable "desired_task_count" {
 variable "task_cpu" {
   description = "Fargate task CPU units (e.g., 1024 = 1 vCPU)."
   type        = number
-  default     = 1024 # 1 vCPU
+  default     = 8192 # 1 vCPU
 }
 
 variable "task_memory" {
   description = "Fargate task memory MiB (e.g., 2048 = 2 GB)."
   type        = number
-  default     = 2048 # 2 GB
+  default     = 16384 # 2 GB
 }
 
 # --- Tagging Variables ---
