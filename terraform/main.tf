@@ -268,9 +268,8 @@ resource "aws_ecs_task_definition" "app" {
     # --- Frontend Container Definition ---
     {
       name      = "frontend"
-      image     = var.frontend_image # From variable (set by Jenkins)
+      image     = var.frontend_image
       essential = true
-      # Frontend talks to backend via localhost within the same task
       environment = [
         { name = "NEXT_PUBLIC_API_URL", value = "http://localhost:${var.backend_port}/api/v1" }
       ]
@@ -281,53 +280,68 @@ resource "aws_ecs_task_definition" "app" {
           protocol      = "tcp"
         }
       ]
-      dependsOn = [{ containerName = "backend", condition = "START" }]
-      # Optional: Add log configuration (CloudWatch)
+      healthCheck = {
+        command     = ["CMD-SHELL", "curl -f http://localhost:${var.frontend_port}/ || exit 1"]
+        interval    = 30 # seconds
+        timeout     = 5  # seconds
+        retries     = 3
+        startPeriod = 400 # seconds, give frontend time to initialize (especially after backend is healthy)
+      }
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-           "awslogs-group"         = aws_cloudwatch_log_group.ecs_logs.name # Reference log group below
-           "awslogs-region"        = var.aws_region
-           "awslogs-stream-prefix" = "frontend"
-         }
-       }
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs_logs.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "frontend"
+        }
+      }
     },
     # --- Backend Container Definition ---
     {
       name      = "backend"
-      image     = var.backend_image # From variable (set by Jenkins)
+      image     = var.backend_image
       essential = true
-      # !! IMPORTANT: GPU resources are NOT supported on Fargate. deploy.resources ignored. !!
-      # !! IMPORTANT: Host/named volumes are ephemeral on Fargate. Data persistence requires EFS (not configured here). !!
       portMappings = [{ containerPort = var.backend_port, hostPort = var.backend_port, protocol = "tcp" }]
-      # command = ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "${var.backend_port}"] # Add if needed
-      dependsOn = [{ containerName = "redis", condition = "START" }]
-      # Optional: Add log configuration (CloudWatch)
-       logConfiguration = {
-         logDriver = "awslogs"
-         options = {
-           "awslogs-group"         = aws_cloudwatch_log_group.ecs_logs.name # Reference log group below
-           "awslogs-region"        = var.aws_region
-           "awslogs-stream-prefix" = "backend"
-         }
-       }
+      # Internal health check for the backend
+      healthCheck = {
+        # IMPORTANT: Replace '/health' with your backend's actual health check endpoint
+        command     = ["CMD-SHELL", "curl -f http://localhost:${var.backend_port}/health || exit 1"]
+        interval    = 30 # seconds
+        timeout     = 5  # seconds
+        retries     = 3
+        startPeriod = 400 # seconds, give backend time to initialize before checks start
+      }
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs_logs.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "backend"
+        }
+      }
     },
     # --- Redis Container Definition ---
     {
       name      = "redis"
-      image     = var.redis_image # From variable (set by Jenkins)
+      image     = var.redis_image
       essential = true
-      # !! IMPORTANT: Redis data volume is ephemeral on Fargate. !!
       portMappings = [{ containerPort = var.redis_port, hostPort = var.redis_port, protocol = "tcp" }]
-      # Optional: Add log configuration (CloudWatch)
+      # Internal health check for Redis
+      healthCheck = {
+        command     = ["CMD-SHELL", "redis-cli -h localhost -p ${var.redis_port} ping | grep PONG || exit 1"]
+        interval    = 30 # seconds
+        timeout     = 5  # seconds
+        retries     = 3
+        startPeriod = 400 # seconds, give redis time to initialize
+      }
       logConfiguration = {
         logDriver = "awslogs"
         options = {
-           "awslogs-group"         = aws_cloudwatch_log_group.ecs_logs.name # Reference log group below
-           "awslogs-region"        = var.aws_region
-           "awslogs-stream-prefix" = "redis"
-         }
-       }
+          "awslogs-group"         = aws_cloudwatch_log_group.ecs_logs.name
+          "awslogs-region"        = var.aws_region
+          "awslogs-stream-prefix" = "redis"
+        }
+      }
     }
   ])
 
