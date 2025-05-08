@@ -281,7 +281,7 @@ resource "aws_ecs_task_definition" "app" {
         }
       ]
       healthCheck = {
-        command     = ["CMD-SHELL", "curl -f http://localhost:${var.frontend_port}/ || exit 1"]
+        command     = ["CMD-SHELL", "curl -f http://127.0.0.1:${var.frontend_port}/ || exit 1"]
         interval    = 30 # seconds
         timeout     = 5  # seconds
         retries     = 3
@@ -305,7 +305,7 @@ resource "aws_ecs_task_definition" "app" {
       # Internal health check for the backend
       healthCheck = {
         # IMPORTANT: Replace '/health' with your backend's actual health check endpoint
-        command     = ["CMD-SHELL", "curl -f http://localhost:${var.backend_port}/health || exit 1"]
+        command     = ["CMD-SHELL", "curl -f http://127.0.0.1:${var.backend_port}/health || exit 1"]
         interval    = 30 # seconds
         timeout     = 5  # seconds
         retries     = 10
