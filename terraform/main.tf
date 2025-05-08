@@ -285,7 +285,7 @@ resource "aws_ecs_task_definition" "app" {
         interval    = 30 # seconds
         timeout     = 5  # seconds
         retries     = 3
-        startPeriod = 400 # seconds, give frontend time to initialize (especially after backend is healthy)
+        startPeriod = 300 # seconds, give frontend time to initialize (especially after backend is healthy)
       }
       logConfiguration = {
         logDriver = "awslogs"
@@ -308,8 +308,8 @@ resource "aws_ecs_task_definition" "app" {
         command     = ["CMD-SHELL", "curl -f http://localhost:${var.backend_port}/health || exit 1"]
         interval    = 30 # seconds
         timeout     = 5  # seconds
-        retries     = 3
-        startPeriod = 400 # seconds, give backend time to initialize before checks start
+        retries     = 10
+        startPeriod = 300 # seconds, give backend time to initialize before checks start
       }
       logConfiguration = {
         logDriver = "awslogs"
@@ -332,7 +332,7 @@ resource "aws_ecs_task_definition" "app" {
         interval    = 30 # seconds
         timeout     = 5  # seconds
         retries     = 3
-        startPeriod = 400 # seconds, give redis time to initialize
+        startPeriod = 300 # seconds, give redis time to initialize
       }
       logConfiguration = {
         logDriver = "awslogs"
